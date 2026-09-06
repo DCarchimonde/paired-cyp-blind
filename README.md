@@ -27,6 +27,12 @@ cd /root/autodl-tmp/paired-cyp-blind-github && bash scripts/start_reviewed_neura
 
 ## 进度与结果
 
+如果首次安装长时间停留在 `Downloading`，可使用
+[下载恢复说明](docs/DOWNLOAD_RECOVERY.md)中的两条命令。
+恢复入口会检查并停止本项目的初始安装进程，复用可用的完整缓存，
+用镜像下载同版本、同哈希的依赖，再自动接回原冻结实验流程。
+每个镜像有 15 分钟总时限；已经进入训练的任务不会被该入口中断。
+
 - 日志：`.runtime/neural-run.log`
 - 退出状态：`.runtime/run-status.txt`
 - 结果入口：`reports/neural_v2/`
