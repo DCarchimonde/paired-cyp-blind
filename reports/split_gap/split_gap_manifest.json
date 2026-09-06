@@ -1,0 +1,79 @@
+{
+  "environment": {
+    "lightgbm": "4.7.0",
+    "numpy": "2.3.5",
+    "pandas": "2.2.3",
+    "python": "3.12.13",
+    "rdkit": "2025.09.6",
+    "scikit_learn": "1.8.0"
+  },
+  "flagship_claim_authorized": false,
+  "generated_utc": "2026-08-29T01:15:07.725318+00:00",
+  "git_head_at_start": "86b372c2b7644acc9f93f2d4f206286127b13bc5",
+  "git_status_at_start": "",
+  "inputs": {
+    "configs/baselines.yaml": "800e19995186ef6196968363ac4c4bb771eb5798104b22ec3f0422f9ba67a7b2",
+    "configs/split_gap.yaml": "01f02b7ccc1128c2daa270179d0a3989a380282a515c2b46b500b3cc1cb06fb4",
+    "data/raw/cyp-challenge-TRAIN_TDI.csv": "b458f599a792412292664386e8f18adc5d4a4129d6bd212ae80a60fb9b96bb60",
+    "data/splits/challenge_mimetic_folds.csv": "631066fe1a7670b605a7df287f07106659cb99da4eed548925df91261852889e",
+    "data/splits/diagnostic_random_folds.csv": "e5ad1b10a9778b2765bec59743ca8687de81fafd4d0b89f3634d4841c339844a",
+    "data/splits/diagnostic_scaffold_folds.csv": "ba671b1eacfd2e82ddfeccd4b01543be8ce99bda2cb22fb4f9ca0ed3f3622b28",
+    "reports/baselines/classical_family_metrics.csv": "88622b0a770f784bfc51c0e263ce987fe35d430ca0ab0789e597d91a8facb06e"
+  },
+  "models_run": [
+    "endpoint_mean",
+    "endpoint_median",
+    "ecfp4_knn",
+    "ecfp4_random_forest",
+    "ecfp4_lightgbm"
+  ],
+  "outputs": {
+    "reports/split_gap/SPLIT_GAP_REPORT.md": "994f0743349a20f857da5613b50c41076f6cb5eb923bbe694868f9bbba6a677d",
+    "reports/split_gap/split_gap_metrics.csv": "95cd909fabec2c4d12c7a2def1b2923361ba10327fc93f5d7421b2733ad1553c",
+    "reports/split_gap/split_gap_predictions.csv": "bd769f564948e8b96eb5268ad522dd889756706775a3fb7edc3f292ae965e47b",
+    "reports/split_gap/split_gap_runtimes.csv": "9e4e58e9c6c888badaa338a90b7f963184771aaf21cdd26108324c769c48892b"
+  },
+  "prediction_rows": 15340,
+  "same_panel": true,
+  "schema_version": 1,
+  "schemes_run": [
+    "random",
+    "murcko_scaffold"
+  ],
+  "split_summary": {
+    "family": {
+      "families_spanning_folds": 0,
+      "fold_sizes": {
+        "0": 150,
+        "1": 150,
+        "2": 150,
+        "3": 150,
+        "4": 150
+      },
+      "groups": 75
+    },
+    "murcko_scaffold": {
+      "families_spanning_folds": 75,
+      "fold_sizes": {
+        "0": 150,
+        "1": 150,
+        "2": 150,
+        "3": 150,
+        "4": 150
+      },
+      "groups": 650
+    },
+    "random": {
+      "families_spanning_folds": 75,
+      "fold_sizes": {
+        "0": 150,
+        "1": 150,
+        "2": 150,
+        "3": 150,
+        "4": 150
+      },
+      "groups": 750
+    }
+  },
+  "stage": "day3_day5_split_gap_diagnostic"
+}

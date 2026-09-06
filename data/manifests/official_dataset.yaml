@@ -1,0 +1,33 @@
+source:
+  repository: https://huggingface.co/datasets/openadmet/cyp-challenge-train-test
+  commit: 3ac9c5dbb83eec5780ec7fa511908698cfe1396d
+  license: Apache-2.0
+  retrieved_utc: "2026-08-28"
+
+official_tutorial:
+  repository: https://github.com/OpenADMET/CYP-Challenge-Tutorial
+  commit: 858ae63ce79934113bccdb7fc65467de5f7b1935
+  license: Apache-2.0
+
+files:
+  cyp-challenge-TEST-BLINDED.csv:
+    sha256: a342f8444a8dcb531ca12f3685293f0bd6c36ae9073f491e44a9bc1cc4b741f9
+    bytes: 44935
+    rows: 750
+  cyp-challenge-TRAIN_Emax.csv:
+    sha256: 482f686a9a9f9166f290e6f5ea463a99de1da478b179a88f4baef48bc66501f1
+    bytes: 1130831
+    rows: 6145
+  cyp-challenge-TRAIN_TDI.csv:
+    sha256: b458f599a792412292664386e8f18adc5d4a4129d6bd212ae80a60fb9b96bb60
+    bytes: 1218524
+    rows: 6145
+  cyp-challenge-TRAIN_inhibition.csv:
+    sha256: b8f79addd266fb6f9f4c222c5e4e73d926362328b6a8d2841871a54e46bd2278
+    bytes: 653407
+    rows: 4905
+  cyp-challenge-single-concentration-TRAIN.csv:
+    sha256: cf275440aa33d10b16e7a3a19f1b196d59dc379052175ab79b47ca43db663c7a
+    bytes: 3619009
+    rows: 17504
+

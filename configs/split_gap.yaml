@@ -1,0 +1,50 @@
+version: 1
+frozen_on: "2026-08-29"
+stage: day3_day5_split_gap_diagnostic
+construction_data: training_only
+test_structures_allowed: false
+
+inputs:
+  baseline_config: configs/baselines.yaml
+  family_panel: data/splits/challenge_mimetic_folds.csv
+  training: data/raw/cyp-challenge-TRAIN_TDI.csv
+  frozen_family_metrics: reports/baselines/classical_family_metrics.csv
+
+comparison_contract:
+  same_750_molecule_panel: true
+  same_endpoint_labels: true
+  same_model_hyperparameters: true
+  same_primary_metrics: true
+  nonpanel_training_core_always_available: true
+  other_four_panel_folds_available_for_training: true
+  interpretation: grouping_effect_on_a_fixed_challenge_mimetic_panel
+
+schemes:
+  random:
+    grouping_unit: standardized_connectivity_key
+    assignment: seeded_shuffle_then_round_robin
+    seed: 20260829
+    output: data/splits/diagnostic_random_folds.csv
+  murcko_scaffold:
+    grouping_unit: chirality_aware_murcko_scaffold
+    assignment: largest_group_first_to_smallest_fold
+    tie_breaker: sha256_of_seed_and_scaffold
+    seed: 20260829
+    output: data/splits/diagnostic_scaffold_folds.csv
+
+folds: 5
+models:
+  - endpoint_mean
+  - endpoint_median
+  - ecfp4_knn
+  - ecfp4_random_forest
+  - ecfp4_lightgbm
+
+outputs:
+  directory: reports/split_gap
+  predictions: split_gap_predictions.csv
+  metrics: split_gap_metrics.csv
+  runtimes: split_gap_runtimes.csv
+  report: SPLIT_GAP_REPORT.md
+  manifest: split_gap_manifest.json
+

@@ -1,0 +1,46 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "paired-cyp-blind"
+version = "0.1.0"
+description = "Assay-structured CYP inhibition modeling under prospective analog-series validation"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "lightgbm>=4.6,<5",
+  "numpy>=2.2,<2.4",
+  "pandas>=2.2,<2.3",
+  "pyyaml>=6.0,<7",
+  "rdkit>=2025.3,<2026",
+  "scikit-learn>=1.7,<1.9",
+  "scipy>=1.16,<1.18",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4,<10",
+]
+neural = [
+  "chemprop==2.3.1",
+  "torch==2.5.1",
+]
+
+[project.scripts]
+cyp-audit = "cyp_blind.audit:main"
+cyp-baselines = "cyp_blind.baselines:main"
+cyp-baseline-audit = "cyp_blind.baseline_audit:main"
+cyp-freeze = "cyp_blind.freeze:main"
+cyp-neural-baselines = "cyp_blind.neural_baselines:main"
+cyp-neural-protocol-audit = "cyp_blind.neural_protocol_audit:main"
+cyp-neural-result-audit = "cyp_blind.neural_result_audit:main"
+cyp-split-gap = "cyp_blind.split_gap:main"
+cyp-split-gap-audit = "cyp_blind.split_gap_audit:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cyp_blind"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+pythonpath = ["src"]
+testpaths = ["tests"]

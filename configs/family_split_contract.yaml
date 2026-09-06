@@ -1,0 +1,45 @@
+version: 1
+frozen_on: "2026-08-28"
+construction_data: training_only
+test_structures_allowed: false
+
+fingerprint:
+  type: morgan_bit
+  radius: 2
+  n_bits: 2048
+  include_chirality: true
+
+anchors:
+  isoforms: [CYP1A2, CYP2C9, CYP3A4]
+  per_isoform: 25
+  ranking: descending_direct_pIC50_subject_to_family_feasibility
+  tie_breaker: Molecule_Name_ascending
+  unique_across_isoforms: true
+
+families:
+  analogs_per_anchor: 10
+  similarity: tanimoto
+  minimum_tanimoto_to_anchor: 0.3333333333333333
+  overlap_resolution:
+    rule: rank_interleaved_greedy_skip_infeasible_anchor_then_similarity_then_molecule_name
+  connectivity_units_unique_globally: true
+  stereochemical_variants_same_fold: true
+  anchors_excluded_from_analog_pool: true
+
+folds:
+  count: 5
+  assignment: deterministic_round_robin_by_selected_anchor_rank_with_isoform_offset
+  balance_on:
+    - anchor_isoform
+    - family_size
+    - selected_anchor_rank
+
+evaluation:
+  all_records_for_molecule_same_fold: true
+  all_records_for_connectivity_key_same_fold: true
+  primary_bootstrap_unit: family_id
+
+deviation_from_official_test_construction:
+  reason: training-only diversity library has fewer dense analog series than the Enamine catalog
+  consequence: anchors remain potency-ranked but must have ten unused training analog connectivity units above the frozen similarity floor
+  blind_test_remains_primary_external_evidence: true

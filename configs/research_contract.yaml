@@ -1,0 +1,53 @@
+project:
+  name: paired-cyp-blind
+  frozen_on: "2026-08-28"
+  status: conditional_go
+  blind_challenge_closes_utc: "2026-11-03T23:59:00Z"
+
+paths:
+  raw_data: data/raw
+  manifest: data/manifests/official_dataset.yaml
+  split_contract: configs/family_split_contract.yaml
+  split_output: data/splits/challenge_mimetic_folds.csv
+  reports: reports
+
+data_contract:
+  expected_rows:
+    direct: 4905
+    blinded_test: 750
+    tdi: 6145
+    single_concentration: 17504
+    emax: 6145
+  direct_isoforms: [CYP1A2, CYP2C9, CYP2D6, CYP3A4]
+  tdi_isoforms: [CYP3A4, CYP2D6]
+  pic50_floor: 4.0
+  tdi_fold_shift: 2.0
+  require_label_reproduction_rate: 1.0
+  forbid_test_structures_in_split_construction: true
+
+primary_metrics:
+  direct: MA-ST-RAE
+  tdi: MCC
+  bootstrap_unit: analog_family
+
+kill_gates:
+  minimum_positive_compounds_per_tdi_isoform: 100
+  minimum_positive_families_per_tdi_isoform: 20
+  required_directionally_consistent_folds: 4
+  total_outer_folds: 5
+  direct_relative_improvement: 0.05
+  tdi_absolute_mcc_improvement: 0.05
+  require_family_bootstrap_ci_excludes_zero: true
+
+claim_boundaries:
+  allowed:
+    - assay-structured paired-condition model
+    - signed metabolism-dependent potency shift
+    - prospective analog-series blind validation
+  forbidden:
+    - first multitask CYP model
+    - first AI model for TDI
+    - prediction of covalent mechanism-based inhibition
+    - prediction of clinical drug-drug interaction
+    - replacement of regulatory CYP experiments
+

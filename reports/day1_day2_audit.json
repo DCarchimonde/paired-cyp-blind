@@ -1,0 +1,505 @@
+{
+  "checks": [
+    {
+      "check_id": "rows.direct",
+      "critical": true,
+      "detail": "observed=4905, expected=4905",
+      "status": "PASS"
+    },
+    {
+      "check_id": "schema.direct",
+      "critical": true,
+      "detail": "missing=[]",
+      "status": "PASS"
+    },
+    {
+      "check_id": "unique_ids.direct",
+      "critical": true,
+      "detail": "duplicate rows=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "rows.blinded_test",
+      "critical": true,
+      "detail": "observed=750, expected=750",
+      "status": "PASS"
+    },
+    {
+      "check_id": "schema.blinded_test",
+      "critical": true,
+      "detail": "missing=[]",
+      "status": "PASS"
+    },
+    {
+      "check_id": "unique_ids.blinded_test",
+      "critical": true,
+      "detail": "duplicate rows=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "rows.tdi",
+      "critical": true,
+      "detail": "observed=6145, expected=6145",
+      "status": "PASS"
+    },
+    {
+      "check_id": "schema.tdi",
+      "critical": true,
+      "detail": "missing=[]",
+      "status": "PASS"
+    },
+    {
+      "check_id": "unique_ids.tdi",
+      "critical": true,
+      "detail": "duplicate rows=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "rows.single_concentration",
+      "critical": true,
+      "detail": "observed=17504, expected=17504",
+      "status": "PASS"
+    },
+    {
+      "check_id": "schema.single_concentration",
+      "critical": true,
+      "detail": "missing=[]",
+      "status": "PASS"
+    },
+    {
+      "check_id": "rows.emax",
+      "critical": true,
+      "detail": "observed=6145, expected=6145",
+      "status": "PASS"
+    },
+    {
+      "check_id": "schema.emax",
+      "critical": true,
+      "detail": "missing=[]",
+      "status": "PASS"
+    },
+    {
+      "check_id": "unique_ids.emax",
+      "critical": true,
+      "detail": "duplicate rows=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "manifest.cyp-challenge-TEST-BLINDED.csv",
+      "critical": true,
+      "detail": "sha256=a342f8444a8dcb531ca12f3685293f0bd6c36ae9073f491e44a9bc1cc4b741f9, bytes=44935; expected sha256=a342f8444a8dcb531ca12f3685293f0bd6c36ae9073f491e44a9bc1cc4b741f9, bytes=44935",
+      "status": "PASS"
+    },
+    {
+      "check_id": "manifest.cyp-challenge-TRAIN_Emax.csv",
+      "critical": true,
+      "detail": "sha256=482f686a9a9f9166f290e6f5ea463a99de1da478b179a88f4baef48bc66501f1, bytes=1130831; expected sha256=482f686a9a9f9166f290e6f5ea463a99de1da478b179a88f4baef48bc66501f1, bytes=1130831",
+      "status": "PASS"
+    },
+    {
+      "check_id": "manifest.cyp-challenge-TRAIN_TDI.csv",
+      "critical": true,
+      "detail": "sha256=b458f599a792412292664386e8f18adc5d4a4129d6bd212ae80a60fb9b96bb60, bytes=1218524; expected sha256=b458f599a792412292664386e8f18adc5d4a4129d6bd212ae80a60fb9b96bb60, bytes=1218524",
+      "status": "PASS"
+    },
+    {
+      "check_id": "manifest.cyp-challenge-TRAIN_inhibition.csv",
+      "critical": true,
+      "detail": "sha256=b8f79addd266fb6f9f4c222c5e4e73d926362328b6a8d2841871a54e46bd2278, bytes=653407; expected sha256=b8f79addd266fb6f9f4c222c5e4e73d926362328b6a8d2841871a54e46bd2278, bytes=653407",
+      "status": "PASS"
+    },
+    {
+      "check_id": "manifest.cyp-challenge-single-concentration-TRAIN.csv",
+      "critical": true,
+      "detail": "sha256=cf275440aa33d10b16e7a3a19f1b196d59dc379052175ab79b47ca43db663c7a, bytes=3619009; expected sha256=cf275440aa33d10b16e7a3a19f1b196d59dc379052175ab79b47ca43db663c7a, bytes=3619009",
+      "status": "PASS"
+    },
+    {
+      "check_id": "single.unique_molecule_enzyme",
+      "critical": true,
+      "detail": "duplicate molecule/enzyme pairs=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "single.dense_four_isoforms",
+      "critical": true,
+      "detail": "molecules with !=4 isoforms=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "identifiers.cross_table_smiles",
+      "critical": true,
+      "detail": "Molecule_Name values mapped to >1 SMILES=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "direct.strict_subset_of_tdi",
+      "critical": true,
+      "detail": "direct=4905, tdi=6145, extra_tdi=1240",
+      "status": "PASS"
+    },
+    {
+      "check_id": "direct.cross_table_exactness",
+      "critical": true,
+      "detail": "cell disagreements=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "intervals.tdi_direct_arm.CYP1A2_pIC50_direct_inhibition",
+      "critical": true,
+      "detail": "n=1412, missing companion=0, inverted=0, point outside=0, nonpositive std=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "intervals.tdi_direct_arm.CYP2C9_pIC50_direct_inhibition",
+      "critical": true,
+      "detail": "n=1285, missing companion=0, inverted=0, point outside=0, nonpositive std=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "intervals.tdi_direct_arm.CYP2D6_pIC50_direct_inhibition",
+      "critical": true,
+      "detail": "n=1493, missing companion=0, inverted=0, point outside=0, nonpositive std=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "intervals.tdi_direct_arm.CYP3A4_pIC50_direct_inhibition",
+      "critical": true,
+      "detail": "n=2335, missing companion=0, inverted=0, point outside=0, nonpositive std=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "intervals.tdi_active_arm.CYP1A2_pIC50_TDI_condition",
+      "critical": true,
+      "detail": "n=1413, missing companion=0, inverted=0, point outside=0, nonpositive std=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "intervals.tdi_active_arm.CYP2C9_pIC50_TDI_condition",
+      "critical": true,
+      "detail": "n=1285, missing companion=0, inverted=0, point outside=0, nonpositive std=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "intervals.tdi_active_arm.CYP2D6_pIC50_TDI_condition",
+      "critical": true,
+      "detail": "n=1497, missing companion=0, inverted=0, point outside=0, nonpositive std=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "intervals.tdi_active_arm.CYP3A4_pIC50_TDI_condition",
+      "critical": true,
+      "detail": "n=3583, missing companion=0, inverted=0, point outside=0, nonpositive std=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "labels.CYP3A4.reproduction",
+      "critical": true,
+      "detail": "matched=3584/3584, rate=1.000000",
+      "status": "PASS"
+    },
+    {
+      "check_id": "labels.CYP3A4.minimum_positive_count",
+      "critical": true,
+      "detail": "positive=764, minimum=100",
+      "status": "PASS"
+    },
+    {
+      "check_id": "labels.CYP2D6.reproduction",
+      "critical": true,
+      "detail": "matched=1497/1497, rate=1.000000",
+      "status": "PASS"
+    },
+    {
+      "check_id": "labels.CYP2D6.minimum_positive_count",
+      "critical": true,
+      "detail": "positive=324, minimum=100",
+      "status": "PASS"
+    },
+    {
+      "check_id": "labels.tdi_emax_consistency",
+      "critical": true,
+      "detail": "label disagreements=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "leakage.train_test_connectivity_overlap",
+      "critical": true,
+      "detail": "shared connectivity keys=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "structures.training_full_inchikey_duplicates",
+      "critical": true,
+      "detail": "duplicate full-InChIKey rows=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "structures.training_standardized_duplicates",
+      "critical": false,
+      "detail": "extra connectivity-collapsed rows=4 across 4 variant groups; full-InChIKey duplicates=0; connectivity units are indivisible in splits",
+      "status": "WARN"
+    },
+    {
+      "check_id": "splits.challenge_mimetic_invariants",
+      "critical": true,
+      "detail": "molecule_rows=750, analog_units=750, families=75, fold_unit_sizes={0: 150, 1: 150, 2: 150, 3: 150, 4: 150}, family_unit_size_range=10-10, connectivity_one_family=True, connectivity_one_fold=True, connectivity_complete_units=True, minimum_unit_similarity=0.333333",
+      "status": "PASS"
+    },
+    {
+      "check_id": "splits.training_only_construction",
+      "critical": true,
+      "detail": "split generator accepts only the training table; blinded test structures are not an input",
+      "status": "PASS"
+    },
+    {
+      "check_id": "splits.CYP3A4.positive_families",
+      "critical": true,
+      "detail": "positive held-out families=52, minimum=20",
+      "status": "PASS"
+    },
+    {
+      "check_id": "splits.CYP2D6.positive_families",
+      "critical": true,
+      "detail": "positive held-out families=22, minimum=20",
+      "status": "PASS"
+    }
+  ],
+  "environment": {
+    "numpy": "2.3.5",
+    "pandas": "2.2.3",
+    "platform": "Linux-6.18.35-x86_64-with-glibc2.39",
+    "python": "3.12.13",
+    "rdkit": "2025.09.6"
+  },
+  "generated_utc": "2026-08-28T17:27:43.938763+00:00",
+  "intervals": {
+    "direct_arm": {
+      "CYP1A2_pIC50_direct_inhibition": {
+        "inverted": 0,
+        "missing_companion": 0,
+        "nonpositive_std": 0,
+        "observed": 1412,
+        "point_outside": 0
+      },
+      "CYP2C9_pIC50_direct_inhibition": {
+        "inverted": 0,
+        "missing_companion": 0,
+        "nonpositive_std": 0,
+        "observed": 1285,
+        "point_outside": 0
+      },
+      "CYP2D6_pIC50_direct_inhibition": {
+        "inverted": 0,
+        "missing_companion": 0,
+        "nonpositive_std": 0,
+        "observed": 1493,
+        "point_outside": 0
+      },
+      "CYP3A4_pIC50_direct_inhibition": {
+        "inverted": 0,
+        "missing_companion": 0,
+        "nonpositive_std": 0,
+        "observed": 2335,
+        "point_outside": 0
+      }
+    },
+    "tdi_arm": {
+      "CYP1A2_pIC50_TDI_condition": {
+        "inverted": 0,
+        "missing_companion": 0,
+        "nonpositive_std": 0,
+        "observed": 1413,
+        "point_outside": 0
+      },
+      "CYP2C9_pIC50_TDI_condition": {
+        "inverted": 0,
+        "missing_companion": 0,
+        "nonpositive_std": 0,
+        "observed": 1285,
+        "point_outside": 0
+      },
+      "CYP2D6_pIC50_TDI_condition": {
+        "inverted": 0,
+        "missing_companion": 0,
+        "nonpositive_std": 0,
+        "observed": 1497,
+        "point_outside": 0
+      },
+      "CYP3A4_pIC50_TDI_condition": {
+        "inverted": 0,
+        "missing_companion": 0,
+        "nonpositive_std": 0,
+        "observed": 3583,
+        "point_outside": 0
+      }
+    }
+  },
+  "overall_pass": true,
+  "schema_version": 1,
+  "split": {
+    "analog_units": 750,
+    "families": 75,
+    "fold_molecule_sizes": {
+      "0": 150,
+      "1": 150,
+      "2": 150,
+      "3": 150,
+      "4": 150
+    },
+    "fold_unit_sizes": {
+      "0": 150,
+      "1": 150,
+      "2": 150,
+      "3": 150,
+      "4": 150
+    },
+    "folds": 5,
+    "maximum_anchor_candidate_rank_by_isoform": {
+      "CYP1A2": 324,
+      "CYP2C9": 244,
+      "CYP3A4": 120
+    },
+    "minimum_anchor_pIC50_by_isoform": {
+      "CYP1A2": 5.595434417,
+      "CYP2C9": 5.2200345,
+      "CYP3A4": 5.66007574
+    },
+    "molecule_rows": 750,
+    "path": "data/splits/challenge_mimetic_folds.csv",
+    "positive_family_counts": {
+      "CYP2D6": 22,
+      "CYP3A4": 52
+    },
+    "similarity_max": 0.7931034482758621,
+    "similarity_median": 0.4012987012987013,
+    "similarity_min": 0.3333333333333333
+  },
+  "structures": {
+    "train_test_connectivity_overlap": 0,
+    "training_connectivity_variant_groups": [
+      {
+        "connectivity_key": "CBLVEVRERGRBQK",
+        "molecules": [
+          {
+            "Molecule_Name": "OCNT-2395305",
+            "canonical_smiles": "CC[C@H](O)CNc1cccc(-n2cnc3ccccc32)n1",
+            "inchikey": "CBLVEVRERGRBQK-LBPRGKRZSA-N"
+          },
+          {
+            "Molecule_Name": "OCNT-2395406",
+            "canonical_smiles": "CCC(O)CNc1cccc(-n2cnc3ccccc32)n1",
+            "inchikey": "CBLVEVRERGRBQK-UHFFFAOYSA-N"
+          }
+        ]
+      },
+      {
+        "connectivity_key": "LEBVLXFERQHONN",
+        "molecules": [
+          {
+            "Molecule_Name": "OCNT-1965934",
+            "canonical_smiles": "CCCCN1CCCCC1C(=O)Nc1c(C)cccc1C",
+            "inchikey": "LEBVLXFERQHONN-UHFFFAOYSA-N"
+          },
+          {
+            "Molecule_Name": "OCNT-2328651",
+            "canonical_smiles": "CCCCN1CCCC[C@H]1C(=O)Nc1c(C)cccc1C",
+            "inchikey": "LEBVLXFERQHONN-INIZCTEOSA-N"
+          }
+        ]
+      },
+      {
+        "connectivity_key": "LOUPRKONTZGTKE",
+        "molecules": [
+          {
+            "Molecule_Name": "OCNT-0494161",
+            "canonical_smiles": "C=C[C@H]1CN2CC[C@H]1C[C@H]2[C@H](O)c1ccnc2ccc(OC)cc12",
+            "inchikey": "LOUPRKONTZGTKE-WZBLMQSHSA-N"
+          },
+          {
+            "Molecule_Name": "OCNT-1911794",
+            "canonical_smiles": "C=C[C@H]1CN2CC[C@H]1C[C@@H]2[C@@H](O)c1ccnc2ccc(OC)cc12",
+            "inchikey": "LOUPRKONTZGTKE-LHHVKLHASA-N"
+          }
+        ]
+      },
+      {
+        "connectivity_key": "MJIHNNLFOKEZEW",
+        "molecules": [
+          {
+            "Molecule_Name": "OCNT-2328781",
+            "canonical_smiles": "Cc1c(OCC(F)(F)F)ccnc1C[S+]([O-])c1nc2ccccc2[nH]1",
+            "inchikey": "MJIHNNLFOKEZEW-UHFFFAOYSA-N"
+          },
+          {
+            "Molecule_Name": "OCNT-2328911",
+            "canonical_smiles": "Cc1c(OCC(F)(F)F)ccnc1C[S@@+]([O-])c1nc2ccccc2[nH]1",
+            "inchikey": "MJIHNNLFOKEZEW-RUZDIDTESA-N"
+          }
+        ]
+      }
+    ],
+    "training_duplicate_connectivity_rows": 4,
+    "training_duplicate_full_inchikey_rows": 0
+  },
+  "tables": {
+    "blinded_test": {
+      "columns": 2,
+      "duplicate_molecule_rows": 0,
+      "duplicate_smiles_rows": 0,
+      "rows": 750,
+      "unique_molecules": 750
+    },
+    "direct": {
+      "columns": 18,
+      "duplicate_molecule_rows": 0,
+      "duplicate_smiles_rows": 0,
+      "rows": 4905,
+      "unique_molecules": 4905
+    },
+    "emax": {
+      "columns": 30,
+      "duplicate_molecule_rows": 0,
+      "duplicate_smiles_rows": 0,
+      "rows": 6145,
+      "unique_molecules": 6145
+    },
+    "single_concentration": {
+      "columns": 12,
+      "duplicate_molecule_rows": 13128,
+      "duplicate_smiles_rows": 13128,
+      "rows": 17504,
+      "unique_molecules": 4376
+    },
+    "tdi": {
+      "columns": 36,
+      "duplicate_molecule_rows": 0,
+      "duplicate_smiles_rows": 0,
+      "rows": 6145,
+      "unique_molecules": 6145
+    }
+  },
+  "tdi": {
+    "CYP2D6": {
+      "labeled": 1497,
+      "labeled_with_missing_direct_or_tdi_value": 4,
+      "negative": 1173,
+      "positive": 324,
+      "positive_rate": 0.21643286573146292,
+      "reproduction_rate": 1.0
+    },
+    "CYP3A4": {
+      "labeled": 3584,
+      "labeled_with_missing_direct_or_tdi_value": 1250,
+      "negative": 2820,
+      "positive": 764,
+      "positive_rate": 0.21316964285714285,
+      "reproduction_rate": 1.0
+    }
+  },
+  "upstream": {
+    "dataset_commit": "3ac9c5dbb83eec5780ec7fa511908698cfe1396d",
+    "license": "Apache-2.0",
+    "tutorial_commit": "858ae63ce79934113bccdb7fc65467de5f7b1935"
+  }
+}

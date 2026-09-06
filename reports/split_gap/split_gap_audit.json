@@ -1,0 +1,112 @@
+{
+  "checks": [
+    {
+      "check_id": "manifest.clean_start",
+      "critical": true,
+      "detail": "git_status_at_start=''",
+      "status": "PASS"
+    },
+    {
+      "check_id": "manifest.scheme_and_model_set",
+      "critical": true,
+      "detail": "schemes=['random', 'murcko_scaffold'], models=['endpoint_mean', 'endpoint_median', 'ecfp4_knn', 'ecfp4_random_forest', 'ecfp4_lightgbm']",
+      "status": "PASS"
+    },
+    {
+      "check_id": "manifest.hashes",
+      "critical": true,
+      "detail": "hash mismatches=[]",
+      "status": "PASS"
+    },
+    {
+      "check_id": "predictions.unique_keys",
+      "critical": true,
+      "detail": "duplicate scheme/model/molecule/endpoint rows=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "predictions.coverage_exact",
+      "critical": true,
+      "detail": "observed=15340, expected=15340, missing=0, extra=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "predictions.split_mapping",
+      "critical": true,
+      "detail": "fold mapping errors=0, group mapping errors=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "splits.fixed_panel_group_integrity",
+      "critical": true,
+      "detail": "split invariant errors=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "predictions.numeric_domain",
+      "critical": true,
+      "detail": "nonfinite truth/prediction cells=0, out-of-range probabilities=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "predictions.train_counts_exclude_test_fold",
+      "critical": true,
+      "detail": "scheme/fold/endpoint groups with unexpected n_train=0",
+      "status": "PASS"
+    },
+    {
+      "check_id": "metrics.official_parity",
+      "critical": true,
+      "detail": "maximum endpoint difference=6.661e-16",
+      "status": "PASS"
+    },
+    {
+      "check_id": "metrics.family_artifact_immutable",
+      "critical": true,
+      "detail": "embedded family metrics exactly equal frozen artifact",
+      "status": "PASS"
+    }
+  ],
+  "flagship_claim_authorized": false,
+  "generated_utc": "2026-08-29T01:18:27.575235+00:00",
+  "optimism_gaps": {
+    "murcko_scaffold": {
+      "ecfp4_knn": {
+        "CYP2D6": 0.09484323407407401,
+        "CYP3A4": 0.008590069409250722,
+        "direct": -0.0014829847107299399
+      },
+      "ecfp4_lightgbm": {
+        "CYP2D6": 0.011263145505434585,
+        "CYP3A4": 0.11215971597731808,
+        "direct": 0.01604768032398074
+      },
+      "ecfp4_random_forest": {
+        "CYP2D6": 0.117954890982987,
+        "CYP3A4": 0.002438876816472313,
+        "direct": 0.010936276417972124
+      }
+    },
+    "random": {
+      "ecfp4_knn": {
+        "CYP2D6": 0.05635266408706639,
+        "CYP3A4": 0.07827553268383869,
+        "direct": -0.00015171249305501178
+      },
+      "ecfp4_lightgbm": {
+        "CYP2D6": 0.03384928947244478,
+        "CYP3A4": 0.175942957790971,
+        "direct": 0.016982468087097247
+      },
+      "ecfp4_random_forest": {
+        "CYP2D6": 0.15308592947043181,
+        "CYP3A4": 0.12160780020285389,
+        "direct": 0.020307343197739858
+      }
+    }
+  },
+  "overall_pass": true,
+  "prediction_rows": 15340,
+  "schema_version": 1,
+  "source_manifest_sha256": "875535ac62271fb6af74e20ae3be84c8d95a75a22261376e72c24f66fe0ac55c"
+}

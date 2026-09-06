@@ -1,0 +1,70 @@
+version: 1
+frozen_on: "2026-08-28"
+stage: day3_day5_classical_baselines
+
+evaluation:
+  split: data/splits/challenge_mimetic_folds.csv
+  outer_folds: 5
+  train_on_other_family_folds: true
+  train_on_nonheldout_core: true
+  primary_direct_metric: MA-ST-RAE
+  primary_tdi_metric: MCC
+  classification_threshold: 0.5
+  require_clean_git_at_start: true
+
+fingerprint:
+  type: morgan_bit
+  radius: 2
+  n_bits: 2048
+  include_chirality: true
+
+models:
+  endpoint_mean:
+    kind: constant
+    statistic: mean
+  endpoint_median:
+    kind: constant
+    statistic: median
+  ecfp4_knn:
+    kind: read_across
+    neighbors: 5
+    similarity_power: 2.0
+    zero_weight_fallback: endpoint_median
+  ecfp4_random_forest:
+    kind: random_forest
+    n_estimators: 300
+    max_features: sqrt
+    min_samples_leaf: 2
+    classifier_class_weight: balanced_subsample
+    n_jobs: 4
+  ecfp4_lightgbm:
+    kind: lightgbm
+    objective_regression: regression_l1
+    n_estimators: 500
+    learning_rate: 0.03
+    num_leaves: 31
+    min_child_samples: 20
+    subsample: 0.8
+    subsample_freq: 1
+    colsample_bytree: 0.8
+    reg_lambda: 1.0
+    classifier_class_weight: balanced
+    deterministic: true
+    n_jobs: 4
+
+random_seed: 20260828
+
+stage_completion:
+  classical_models_required:
+    - endpoint_mean
+    - endpoint_median
+    - ecfp4_knn
+    - ecfp4_random_forest
+    - ecfp4_lightgbm
+  neural_models_pending:
+    - chemprop_single_task
+    - chemprop_masked_multitask
+  split_gap_diagnostics_pending:
+    - random
+    - murcko_scaffold
+

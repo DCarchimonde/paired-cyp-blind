@@ -1,0 +1,9 @@
+Molecule_Name,SMILES,target
+cls_train_01,CCO,0
+cls_train_02,CCN,1
+cls_train_03,CCC,0
+cls_train_04,CCCl,1
+cls_train_05,CCBr,0
+cls_train_06,CCF,1
+cls_train_07,CCCO,0
+cls_train_08,CCCN,1

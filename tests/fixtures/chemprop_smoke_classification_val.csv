@@ -1,0 +1,3 @@
+Molecule_Name,SMILES,target
+cls_val_01,CCCC,0
+cls_val_02,CCCCO,1

@@ -1,0 +1,46 @@
+{
+  "artifacts": {
+    "configs/family_split_contract.yaml": {
+      "bytes": 1393,
+      "sha256": "e3df7bf16545f0eb15c1fbdd4e508be7ad69f0d391284266611f5ade38de00eb"
+    },
+    "configs/research_contract.yaml": {
+      "bytes": 1481,
+      "sha256": "9a117243687d5dd1ee53de9f025fd96efd7d456a7b0e59bebc950989032ead40"
+    },
+    "data/manifests/official_dataset.yaml": {
+      "bytes": 1095,
+      "sha256": "b36145f84dc833bf1177987c1f8b6835c016592ec2722e95dfd6628163aeec8f"
+    },
+    "data/splits/challenge_mimetic_folds.csv": {
+      "bytes": 108363,
+      "sha256": "631066fe1a7670b605a7df287f07106659cb99da4eed548925df91261852889e"
+    },
+    "reports/DAY1_DAY2_AUDIT.md": {
+      "bytes": 6554,
+      "sha256": "fb2615f7d3da2a52289261e2ab07f8dac9ad3a46a87c33e0c9b783fc7173a447"
+    },
+    "reports/day1_day2_audit.json": {
+      "bytes": 14987,
+      "sha256": "4a3685e681212c438a0180b6494539f2632965c0f92767d0e65c8ba0fcacffc6"
+    },
+    "uv.lock": {
+      "bytes": 52257,
+      "sha256": "1699e0fbd8ed3437d58bc89aece66b63e16629496c6472d4ab014200e3bc618a"
+    }
+  },
+  "environment": {
+    "numpy": "2.3.5",
+    "pandas": "2.2.3",
+    "python": "3.12.13",
+    "rdkit": "2025.09.6"
+  },
+  "flagship_claim_authorized": false,
+  "frozen_utc": "2026-08-28T17:28:01.083758+00:00",
+  "git_head": "03a15fe2526a231d7c1387f6c4d293b5bc6b8a88",
+  "git_status_porcelain": "",
+  "next_stage_authorized": "Day 3\u20135 baselines",
+  "schema_version": 1,
+  "stage": "day1_day2",
+  "status": "PASS"
+}

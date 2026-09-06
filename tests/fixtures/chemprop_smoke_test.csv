@@ -1,0 +1,3 @@
+Molecule_Name,SMILES,target
+reg_test_01,CCCCN,3.0
+reg_test_02,CCCCC,3.2

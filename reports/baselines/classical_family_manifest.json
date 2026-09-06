@@ -1,0 +1,46 @@
+{
+  "complete_classical_set": true,
+  "dirty_override": false,
+  "environment": {
+    "lightgbm": "4.7.0",
+    "numpy": "2.3.5",
+    "pandas": "2.2.3",
+    "python": "3.12.13",
+    "rdkit": "2025.09.6",
+    "scikit_learn": "1.8.0"
+  },
+  "flagship_claim_authorized": false,
+  "generated_utc": "2026-08-29T01:03:15.562494+00:00",
+  "git_head_at_start": "0d259e189298aefba63ab965610e70b3998fb070",
+  "git_status_at_start": "",
+  "inputs": {
+    "configs/baselines.yaml": "800e19995186ef6196968363ac4c4bb771eb5798104b22ec3f0422f9ba67a7b2",
+    "data/raw/cyp-challenge-TRAIN_TDI.csv": "b458f599a792412292664386e8f18adc5d4a4129d6bd212ae80a60fb9b96bb60",
+    "data/splits/challenge_mimetic_folds.csv": "631066fe1a7670b605a7df287f07106659cb99da4eed548925df91261852889e"
+  },
+  "models_run": [
+    "endpoint_mean",
+    "endpoint_median",
+    "ecfp4_knn",
+    "ecfp4_random_forest",
+    "ecfp4_lightgbm"
+  ],
+  "outputs": {
+    "reports/baselines/CLASSICAL_FAMILY_BASELINES.md": "e0b43a253806b4678d025d2bd2f4256a51344e354ede7faf793cbfb84749a190",
+    "reports/baselines/classical_family_metrics.csv": "88622b0a770f784bfc51c0e263ce987fe35d430ca0ab0789e597d91a8facb06e",
+    "reports/baselines/classical_family_predictions.csv": "74e59b338f5670c993b9b1096ad07ddf3fc37784eb976985574508d424d71b28",
+    "reports/baselines/classical_family_runtimes.csv": "fbffd0885210521c694b88363769f4c894575ec48f4ae40903a7d5219813dbb0"
+  },
+  "pending": {
+    "neural_models": [
+      "chemprop_single_task",
+      "chemprop_masked_multitask"
+    ],
+    "split_gap_diagnostics": [
+      "random",
+      "murcko_scaffold"
+    ]
+  },
+  "schema_version": 1,
+  "stage": "day3_day5_classical_baselines"
+}

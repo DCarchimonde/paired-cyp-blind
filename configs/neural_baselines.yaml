@@ -1,0 +1,111 @@
+version: 2
+frozen_on: "2026-09-06"
+supersedes_protocol: neural-protocol-frozen-20260829
+implementation_reviewed_on: "2026-09-06"
+stage: day3_day5_neural_baselines
+construction_data: training_only
+test_structures_allowed: false
+
+dependencies:
+  python: "3.12.13"
+  chemprop: "2.3.1"
+  torch: "2.5.1"
+  compiled_cuda: "12.4"
+
+inputs:
+  training: data/raw/cyp-challenge-TRAIN_TDI.csv
+  family_split: data/splits/challenge_mimetic_folds.csv
+  baseline_config: configs/baselines.yaml
+
+input_sha256:
+  training: b458f599a792412292664386e8f18adc5d4a4129d6bd212ae80a60fb9b96bb60
+  family_split: 631066fe1a7670b605a7df287f07106659cb99da4eed548925df91261852889e
+
+cross_validation:
+  outer_folds: 5
+  inner_validation_rule: next_family_fold_cyclic
+  inner_validation_offset: 1
+  nonpanel_core_always_train: true
+  other_panel_folds_train: true
+  standardize_smiles: true
+
+models:
+  single_task:
+    direct:
+      - CYP1A2_pIC50_direct_inhibition
+      - CYP2C9_pIC50_direct_inhibition
+      - CYP2D6_pIC50_direct_inhibition
+      - CYP3A4_pIC50_direct_inhibition
+    tdi:
+      - CYP3A4_is_TDI
+      - CYP2D6_is_TDI
+  masked_multitask:
+    direct:
+      - CYP1A2_pIC50_direct_inhibition
+      - CYP2C9_pIC50_direct_inhibition
+      - CYP2D6_pIC50_direct_inhibition
+      - CYP3A4_pIC50_direct_inhibition
+    tdi:
+      - CYP3A4_is_TDI
+      - CYP2D6_is_TDI
+
+architecture:
+  message_hidden_dim: 300
+  depth: 3
+  dropout: 0.1
+  aggregation: mean
+  activation: RELU
+  ffn_hidden_dim: 300
+  ffn_num_layers: 1
+  atom_featurizer: V2
+  ensemble_size: 1
+
+optimization:
+  batch_size: 64
+  num_workers: 4
+  epochs: 100
+  patience: 15
+  min_delta: 0.0
+  warmup_epochs: 2
+  init_lr: 0.0001
+  max_lr: 0.001
+  final_lr: 0.0001
+  regression:
+    task_type: regression
+    loss: mse
+    metrics: [mae, rmse]
+    tracking_metric: mae
+  classification:
+    task_type: classification
+    loss: bce
+    metrics: [prc, binary-mcc]
+    tracking_metric: prc
+    class_balance: false
+    sampling_note: Uniform_seeded_sampling_in_both_modes_Chemprop_class_balance_is_single_task_only_and_treats_NaN_as_active
+    fixed_decision_threshold: 0.5
+    tracking_note: Chemprop_2.3.1_hyphen_parser_prevents_binary_mcc_as_tracking_metric
+
+seeds: [20260829, 20260830, 20260831, 20260832, 20260833]
+
+production_gpu:
+  accelerator: gpu
+  devices: "1"
+  required_name_contains: "4090"
+  required_compute_capability: "8.9"
+  minimum_vram_gib: 20
+  require_cuda: true
+  refuse_silent_cpu_fallback: true
+
+provenance:
+  require_clean_git_at_production_start: true
+  required_protocol_tag: neural-protocol-hardened-20260906
+
+paths:
+  prepared_data: data/derived/neural_v2
+  job_root: reports/neural_v2/jobs
+  summary_root: reports/neural_v2
+
+expected:
+  data_specs: 40
+  jobs: 200
+  predictions: 15340
