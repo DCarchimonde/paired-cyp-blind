@@ -6,7 +6,9 @@
 ## 直接运行：两个独立命令
 
 在 AutoDL 的 Linux 终端执行。使用一张 RTX 4090，数据盘首次安装前至少有 30 GiB 空间，
-并能连接 GitHub、PyPI、Python 下载源和 Hugging Face。使用独立目录 `paired-cyp-blind-github`。
+并能连接 GitHub、PyPI 和 Python 下载源。冻结的公开数据已随仓库提供，
+原始文件逐一核验 SHA256 后使用，无需从运行机器再次访问 Hugging Face。
+使用独立目录 `paired-cyp-blind-github`。
 
 第一条：首次克隆，已有目录则拉取更新。训练期间不要更新代码。
 
@@ -20,12 +22,16 @@ cd /root/autodl-tmp && if [ -d paired-cyp-blind-github/.git ]; then git -C paire
 cd /root/autodl-tmp/paired-cyp-blind-github && bash scripts/start_reviewed_neural_baselines_4090.sh
 ```
 
-脚本自动恢复冻结的实验代码、安装隔离环境、核对数据和 GPU、运行测试、检查划分，
+脚本自动恢复冻结的实验代码与公开数据、安装隔离环境、核对数据和 GPU、运行测试、检查划分，
 再完成 200 个训练任务、汇总和独立指标审计。终端断开后可继续运行；重复启动不会并发开两套任务。
 失败后重新执行第二条会复用验证通过的完整任务；被中断的单个任务会从头重跑。
 机器关机、实例被释放或磁盘丢失会中断任务。
 
 ## 进度与结果
+
+无卡模式可准备数据，正式训练须使用 RTX 4090。
+如果环境已安装完成，但在 `FETCH cyp-challenge-TEST-BLINDED.csv` 处连接失败，
+按[数据准备与开机模式说明](docs/DATA_PREPARATION.md)操作，已安装环境可继续使用。
 
 如果首次安装长时间停留在 `Downloading`，可使用
 [下载恢复说明](docs/DOWNLOAD_RECOVERY.md)中的两条命令。
