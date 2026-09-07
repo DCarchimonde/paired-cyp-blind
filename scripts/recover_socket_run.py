@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import select
 import signal
+import sys
 import time
 
 
@@ -135,11 +136,22 @@ def native_process_ids() -> bool:
     return Path("/proc/self").resolve().name == str(os.getpid())
 
 
+def require_pidfd_api() -> None:
+    missing = [name for name, value in (
+        ("os.pidfd_open", getattr(os, "pidfd_open", None)),
+        ("signal.pidfd_send_signal", getattr(signal, "pidfd_send_signal", None)),
+    ) if not callable(value)]
+    if missing:
+        raise RuntimeError(
+            f"Recovery Python {sys.version.split()[0]} at {sys.executable} lacks "
+            f"{', '.join(missing)}; use the installed frozen environment. No process was stopped."
+        )
+
+
 def stop_attempt(root: Path, processes: dict[int, Process], process: Process) -> list[int]:
     if not native_process_ids():
         raise RuntimeError("Process IDs do not match /proc on this host; no process was stopped.")
-    if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
-        raise RuntimeError("Safe PID handles are unavailable; no process was stopped.")
+    require_pidfd_api()
     subtree = [p for p in processes.values()
                if p.pid == process.pid or process.pid in {a.pid for a in ancestors(p, processes)}]
     if any(p.cwd != root for p in subtree):
@@ -182,6 +194,9 @@ def stop_attempt(root: Path, processes: dict[int, Process], process: Process) ->
 
 def recover(root: Path) -> None:
     root = root.resolve(strict=True)
+    print(f"Recovery Python {sys.version.split()[0]}: {sys.executable}; "
+          f"pidfd_open={callable(getattr(os, 'pidfd_open', None))}; "
+          f"pidfd_send_signal={callable(getattr(signal, 'pidfd_send_signal', None))}", flush=True)
     runtime = root / ".runtime"
     with (runtime / "run.lock").open("a+") as lock:
         processes = snapshot()

@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -201,6 +202,63 @@ class RecoverySelectionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "another directory"):
                 recovery.stop_attempt(self.root, self.processes, self.train)
             send.assert_not_called()
+
+
+    def test_missing_pidfd_api_reports_interpreter_and_keeps_guard(self):
+        with patch.object(recovery.os, "pidfd_open", None), \
+             patch.object(recovery.signal, "pidfd_send_signal") as send:
+            with self.assertRaisesRegex(RuntimeError, "lacks os.pidfd_open") as error:
+                recovery.require_pidfd_api()
+            self.assertIn(sys.executable, str(error.exception))
+            send.assert_not_called()
+
+
+class RecoveryInterpreterTests(unittest.TestCase):
+    def setUp(self):
+        self.workspace = tempfile.TemporaryDirectory(prefix="cyp-interpreter-test-")
+        self.addCleanup(self.workspace.cleanup)
+        self.root = Path(self.workspace.name)
+        self.frozen = self.root / ".runtime/frozen-experiment"
+        (self.frozen / ".runtime").mkdir(parents=True)
+        scripts = self.root / "scripts"
+        scripts.mkdir()
+        shutil.copy2(ROOT / "scripts/recover_socket_error_4090.sh", scripts)
+        (scripts / "prepare_frozen_checkout.sh").write_text(
+            "#!/bin/sh\nprintf '%s\\n' " + shlex.quote(str(self.frozen)) + "\n")
+        (scripts / "recover_socket_run.py").write_text(
+            "from pathlib import Path\n"
+            + "Path(" + repr(str(self.root / "recovery-called")) + ").write_text('synthetic fixture')\n")
+        (scripts / "start_reviewed_neural_baselines_4090.sh").write_text(
+            '#!/bin/sh\n[ "$UV_OFFLINE" = 1 ] || exit 72\n'
+            + "touch " + shlex.quote(str(self.root / "restart-called")) + "\n")
+        self.fake = self.root / "fake-bin"
+        self.fake.mkdir()
+        # A system python3 is present but must never be used for recovery.
+        system_python = self.fake / "python3"
+        system_python.write_text("#!/bin/sh\nexit 71\n")
+        system_python.chmod(0o755)
+        self.env = {**os.environ, "PATH": str(self.fake) + os.pathsep + os.environ["PATH"]}
+
+    def launch(self):
+        return subprocess.run(["bash", str(self.root / "scripts/recover_socket_error_4090.sh")],
+                              env=self.env, text=True, capture_output=True, timeout=10)
+
+    def test_uses_frozen_interpreter_even_with_incompatible_system_python(self):
+        python = self.frozen / ".venv/bin/python"
+        python.parent.mkdir(parents=True)
+        python.write_text("#!/bin/sh\nexec " + shlex.quote(sys.executable) + ' "$@"\n')
+        python.chmod(0o755)
+        result = self.launch()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.root / "recovery-called").exists())
+        self.assertTrue((self.root / "restart-called").exists())
+
+    def test_missing_frozen_interpreter_stops_before_recovery_or_restart(self):
+        result = self.launch()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("installed frozen Python environment is required", result.stderr)
+        self.assertFalse((self.root / "recovery-called").exists())
+        self.assertFalse((self.root / "restart-called").exists())
 
 
 if __name__ == "__main__":

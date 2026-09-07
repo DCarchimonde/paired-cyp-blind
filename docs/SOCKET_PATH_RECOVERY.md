@@ -46,6 +46,16 @@ unrelated process, stale identity or ambiguous process tree causes a refusal.
 All old attempts, caches and environment files are retained; the unfinished job
 starts a new attempt under the original protocol.
 
+The first recovery release mistakenly invoked the system `python3` for process
+control. The user then reported `Safe PID handles are unavailable`; that message
+means the selected interpreter lacks one of the required Python APIs, and the
+guard stopped recovery before any signal was sent. The corrected entrypoint uses
+the already installed `.runtime/frozen-experiment/.venv/bin/python` explicitly.
+It prints the interpreter/version and both API flags. All existing process
+identity and PID-handle requirements remain enforced; there is no numeric-PID
+or broad process-kill fallback. The system Python version was not supplied, so
+the diagnosis does not assume a specific system version or a kernel failure.
+
 The entrypoint checks a real AF_UNIX listener before launch. When torch is already
 installed (as in this incident), it also transfers 64 ordered tensor values using
 four DataLoader workers, under a 45-second outer timeout. It must print:
@@ -67,11 +77,13 @@ independent result audit, not just this IPC probe.
   four-worker setting, epochs, batch size, TDI threshold and result validators
   are unchanged. The same alias correction also covers the download recovery's
   handoff back to the frozen workflow.
-- Targeted standard-library regression suite: 11 passed, 1 skipped. Tests check
+- Targeted standard-library regression suite: 14 passed, 1 skipped. Tests check
   the exact 112-byte old pathname, short literal Python TMPDIR, target/reuse and
   conflict handling, both actual frozen shell launchers with synthetic commands,
   failed-parent selection despite inherited worker command lines, healthy and
   completed job rejection, unrelated processes, PID reuse and foreign children.
+  Interpreter tests also cover an incompatible system `python3`, a missing
+  frozen interpreter, and an unavailable PID API without weakening the guard.
 - The executor prohibits creating AF_UNIX sockets, so its real-listener test is
   explicitly skipped. It also virtualizes process IDs relative to `/proc` and
   has no installed PyTorch/4090. Real socket/tensor transfer and targeted process
