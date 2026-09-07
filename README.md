@@ -29,6 +29,11 @@ cd /root/autodl-tmp/paired-cyp-blind-github && bash scripts/start_reviewed_neura
 
 ## 进度与结果
 
+如果停在 `[1/200]`，且任务 `train.log` 中出现 `AF_UNIX path too long`，
+按[通信路径修复说明](docs/SOCKET_PATH_RECOVERY.md)恢复。修复入口核对出错任务后停止其进程，
+通过短路径重新调用原冻结脚本；已有环境和历史任务保留。正常启动入口也会先检查真实通信，
+环境已有 PyTorch 时会验证四个数据加载进程的张量传输。
+
 无卡模式可准备数据，正式训练须使用 RTX 4090。
 如果环境已安装完成，但在 `FETCH cyp-challenge-TEST-BLINDED.csv` 处连接失败，
 按[数据准备与开机模式说明](docs/DATA_PREPARATION.md)操作，已安装环境可继续使用。

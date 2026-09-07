@@ -268,9 +268,17 @@ def recover(root: Path, lock, lock_hash: str) -> int:
     audit_path.write_text(json.dumps(audit, indent=2) + "\n")
     print(f"DEPENDENCY RECOVERY PASS. Evidence: {audit_path}", flush=True)
     print("Resuming the original frozen workflow; GPU training has not been claimed complete.", flush=True)
+    short_root = Path(subprocess.check_output(
+        [python, str(Path(__file__).with_name("short_runtime.py")), "--root", str(root)],
+        text=True, timeout=15,
+    ).strip())
+    env.update(TMPDIR=str(short_root / ".runtime/tmp"), PWD=str(short_root))
+    if monitored([python, "-u", str(Path(__file__).with_name("probe_tensor_ipc.py"))],
+                 root=root, env=env, timeout=45, label="Four-worker IPC preflight") != 0:
+        raise RuntimeError("IPC preflight failed; training was not launched.")
     # Only uv is offline. The original Python data-fetch step retains network access.
     env.update(UV_OFFLINE="1", PAIRED_CYP_LOCK_HELD="1")
-    process = subprocess.Popen(["bash", "scripts/run_neural_baselines_4090.sh"], cwd=root,
+    process = subprocess.Popen(["bash", str(short_root / "scripts/run_neural_baselines_4090.sh")], cwd=short_root,
                                env=env, pass_fds=(lock.fileno(),))
     (root / ".runtime/runner.pid").write_text(str(process.pid) + "\n")
     return process.wait()
