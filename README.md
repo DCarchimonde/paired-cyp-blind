@@ -16,6 +16,9 @@ cd /root/autodl-tmp/paired-cyp-blind-github && git pull --ff-only origin main &&
 
 新日志：`.runtime/tdi-prc-repair.log`。完成后上传 `CYP_neural_v3_review.zip`。
 修正结果尚需实际复跑；原 v2 文件保留，不能把原 TDI 零分当作已正确选模的基线结果。
+若第一项修正任务报 `Last checkpoint differs from the final training epoch`，
+拉取更新后使用同一入口续跑：新版本核对 Lightning 2.6.5 的实际保存行为，
+验证已有模型及重新推断的一致性后恢复该任务。详细恢复规则见上方说明。
 
 ## 历史 v2 准备与复现：两个独立命令
 

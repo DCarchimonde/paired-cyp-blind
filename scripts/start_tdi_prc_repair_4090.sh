@@ -49,6 +49,13 @@ printf 'RUNNING since %s\n' "$(date -u +%FT%TZ)" > "$run_status"
 export PYTHONUNBUFFERED=1
 export PATH="$frozen_dir/.venv/bin:$PATH"
 export PYTHONPATH="$frozen_dir/src${PYTHONPATH:+:$PYTHONPATH}"
+# Invalid inherited values make libgomp fall back to its default and warn in
+# every child. Unset only invalid values; preserve valid positive thread lists.
+if [[ ${OMP_NUM_THREADS+x} && ! "$OMP_NUM_THREADS" =~ ^[[:space:]]*[+]?0*[1-9][0-9]*([[:space:]]*,[[:space:]]*[+]?0*[1-9][0-9]*)*[[:space:]]*$ ]]; then
+  export CYP_IGNORED_OMP_NUM_THREADS="$OMP_NUM_THREADS"
+  unset OMP_NUM_THREADS
+  echo 'Ignoring invalid inherited OMP_NUM_THREADS; using the OpenMP default.'
+fi
 short_dir="$("$python_exe" "$delivery_dir/scripts/short_runtime.py" --root "$frozen_dir")"
 export TMPDIR="$short_dir/.runtime/tmp"
 timeout --kill-after=5s 45s "$python_exe" -u "$delivery_dir/scripts/probe_tensor_ipc.py"

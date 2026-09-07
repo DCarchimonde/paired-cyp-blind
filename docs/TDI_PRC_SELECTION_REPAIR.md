@@ -59,6 +59,37 @@ cd /root/autodl-tmp/paired-cyp-blind-github && tail -n 40 -F .runtime/tdi-prc-re
 需等待 75 个修正任务和独立审计完成后的 PASS。重复启动受共享实验锁保护。
 同版本、同输入续跑会验证并复用已完成的新任务；失败尝试保留。
 
+### 第一项任务的 `last.ckpt` 校验报错恢复
+
+首次 v3 启动已在 AutoDL 通过原 200 任务检查和真实 PRC 方向/早停自检，
+随后在第一项训练后的审计中报错 `Last checkpoint differs from the final training epoch`。
+这是修复脚本的校验错误：在固定的 Lightning 2.6.5 中，epoch-end 的 `save_last=True`
+跟随成功的 top-k 保存；没有新的最佳分数时，`last.ckpt` 可能停在最佳轮次。
+它的名称不代表最终训练轮次。依据是该版本的
+[ModelCheckpoint 保存实现](https://github.com/Lightning-AI/pytorch-lightning/blob/2.6.5/src/lightning/pytorch/callbacks/model_checkpoint.py)。
+
+本次更新核对 last 与 best 的轮次、global step、权重及固定版本，
+最终训练轮次继续由完整训练/验证曲线和早停规则核验。
+没有修改训练回调、PRC 公式、网络或冻结实验配置。
+新增真实 CPU 自检使用每轮不同的权重，检查最佳 epoch 1、最终训练 epoch 2、
+last 保存 epoch 1，并验证预测阶段确实恢复最佳模型。自检失败会在训练前停止。
+这里出现 `GPU available ... used: False` 是 CPU 小型自检的预期输出。
+
+恢复仍使用上面的启动命令。旧 `RUN_REGISTRATION.json` 原样保留；
+只允许已知提交 `6b10538`、四个原修复文件精确哈希以及相同数据、训练包装器、
+协议和依赖之间的审计升级。新审计版本另行登记，各任务保留实际训练代码来源。
+对旧版本完整训练却尚未写入 COMPLETE 的单一尝试，先保存现有工件哈希快照，
+核对配置，并从已有 best.pt 重新推断验证集和测试集，与原预测逐项比较。
+所有审计通过才写 COMPLETE；不修改模型权重，也不重新训练该任务。
+原脚本没有落盘的耗时明确记录为未知，不能用文件时间伪造训练时长。
+存在多个候选时拒绝按分数挑选；不完整尝试保留后另建训练尝试。
+
+新任务在正式审计前持久化 `CANDIDATE.json`，失败后可重新审计该候选；
+它的状态是 `PENDING_AUDIT`，不计入完成数。
+成功恢复时会显示 `RECOVERED PASS ... existing training reused`，随后继续其余任务。
+启动脚本同时清除无效的继承 `OMP_NUM_THREADS`，使用 OpenMP 默认值，
+有效线程设置保留，相关环境值记录在新尝试或恢复推断记录中。
+
 程序先检查原 200 个任务、分区和回归选模，再运行真实 Torch/Lightning 自检：
 对已知分数序列 `[0.2, 0.8, 0.4, 0.3]`，旧方向必须复现选 epoch 0，
 修正后必须选 epoch 1，且早停时点相符。自检失败会在正式复跑前停止。
@@ -73,9 +104,13 @@ cd /root/autodl-tmp/paired-cyp-blind-github && tail -n 40 -F .runtime/tdi-prc-re
 
 ## 当前验证状态与下一阶段
 
-本地 7 项回归测试通过；新选模审计在实际上传的全部 75 条训练曲线上均拒绝错误的最小 PRC 选择，
-45 个 TDI 分区的独立只读审计通过。当前审查环境未安装 Torch，也没有用户的 4090，
-所以真实回调自检、验证集重新推断及 75 任务训练由上述入口在 AutoDL 执行，结果尚未产生。
+本地 15 项针对性测试通过，覆盖 PRC 方向、last 保存语义、错误元数据/权重拒绝、
+来源登记、禁止训练输入/包装器/协议/依赖变更、恢复预测一致性、工件保留和未知耗时。
+此前新选模审计在实际上传的全部 75 条曲线上均拒绝错误的最小 PRC 选择，
+45 个 TDI 分区的独立只读审计通过。用户最新日志已证实 AutoDL 上原 200 任务检查
+与真实 PRC 方向/早停自检通过，第一项训练已进入保存模型后的审计。
+当前审查环境未安装 Torch，也没有用户的 4090；新增 last 生命周期真实自检和
+第一项工件恢复须由更新入口在 AutoDL 执行。尚未生成完整的 75 项修正结果。
 
 正确基线完成后，再进入 assay-structured 主模型最小原型及核心消融。
 当前回归结果保留为强基线；TDI 也继续与已完成的传统树模型比较。

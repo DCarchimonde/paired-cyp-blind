@@ -25,7 +25,15 @@ import pandas as pd
 
 PROTOCOL_ID = "neural-prc-max-v3-20260907"
 CODE_FILES = ("scripts/chemprop_prc_max.py", "scripts/tdi_prc_repair.py",
-              "scripts/start_tdi_prc_repair_4090.sh", "configs/tdi_prc_repair.json")
+              "scripts/start_tdi_prc_repair_4090.sh", "scripts/tdi_checkpoint_audit.py",
+              "configs/tdi_prc_repair.json")
+LEGACY_COMMIT = "6b10538bc6d2595d6eddbf383cf852ebba24766f"
+LEGACY_CODE_HASHES = {
+    "scripts/chemprop_prc_max.py": "49fad40ad6ca895f6dd1fa518f4e73c3a5477c539ad4b8529e3413ea36c78606",
+    "scripts/tdi_prc_repair.py": "3679aceeac6e989e8c4abd7b34317dfda2ddaa2d858f1d177fa0cbb8ef146f25",
+    "scripts/start_tdi_prc_repair_4090.sh": "98b5af7de9d4d594409d4de84c8a2a5cd987b5a0ce6b26db05e7966249f1999f",
+    "configs/tdi_prc_repair.json": "bfb6fbb913f53702116860a9b3df8e64482c0f4f0df2dd914c97864c0a1e1c0e",
+}
 
 
 def sha(path: Path) -> str:
@@ -62,6 +70,150 @@ def recorded_file(root: Path, entry: dict, *, within: Path | None = None) -> Pat
 
 def entry(root: Path, path: Path) -> dict:
     return {"path": str(path.resolve().relative_to(root)), "sha256": sha(path)}
+
+
+def identity_fingerprint(identity: dict) -> str:
+    return hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+
+
+def register_revision(output: Path, identity: dict) -> tuple[str, dict]:
+    """Keep the original registration and record this auditor/code revision separately."""
+    fingerprint = identity_fingerprint(identity)
+    path = output / "RUN_REGISTRATION.json"
+    if not path.exists():
+        write_json(path, {"registered_utc": utc(), "run_fingerprint": fingerprint, **identity})
+    original = json.loads(path.read_text())
+    before = {key: original[key] for key in ("protocol", "files", "delivery_commit", "package_environment")}
+    old_fingerprint = identity_fingerprint(before)
+    if original.get("run_fingerprint") != old_fingerprint:
+        raise RuntimeError("Original run registration fingerprint is invalid.")
+    same_code = before["files"]["repair"] == identity["files"]["repair"]
+    known_legacy = (before["delivery_commit"] == LEGACY_COMMIT
+                    and before["files"]["repair"] == LEGACY_CODE_HASHES
+                    and identity["files"]["repair"]["scripts/chemprop_prc_max.py"]
+                    == LEGACY_CODE_HASHES["scripts/chemprop_prc_max.py"])
+    if (before["protocol"] != identity["protocol"]
+            or before["files"]["frozen"] != identity["files"]["frozen"]
+            or before["package_environment"] != identity["package_environment"]
+            or not (same_code or known_legacy)):
+        raise RuntimeError("Unrecognized repair revision or changed training inputs/packages; files preserved.")
+    revision = output / "registrations" / f"{fingerprint}.json"
+    if revision.exists():
+        saved = json.loads(revision.read_text())
+        if any(saved.get(key) != value for key, value in identity.items()):
+            raise RuntimeError("Existing audit revision identity differs.")
+        if saved.get("original_registration_sha256") != sha(path):
+            raise RuntimeError("Original run registration changed after the audit revision.")
+    else:
+        write_json(revision, {"registered_utc": utc(), "run_fingerprint": fingerprint, **identity,
+                              "original_registration_sha256": sha(path),
+                              "reason": "Audit actual Lightning 2.6.5 last-save semantics; preserve training provenance"})
+    return fingerprint, {old_fingerprint: before, fingerprint: identity}
+
+
+def attempt_artifacts(log_path: Path, selection: dict) -> dict[str, Path]:
+    attempt = log_path.parent
+    model = attempt / "model/model_0"
+    best = list((model / "checkpoints").glob("best-epoch=*-val_prc=*.ckpt"))
+    if len(best) != 1:
+        raise RuntimeError(f"Expected one retained best checkpoint: {attempt}")
+    paths = {"log": log_path, "config": attempt / "model/config.toml",
+             "training_metrics": Path(selection["training_metrics_path"]), "best_model": model / "best.pt",
+             "best_checkpoint": best[0], "last_checkpoint": model / "checkpoints/last.ckpt",
+             "chemprop_predictions": model / "test_predictions.csv", "predictions": attempt / "predictions.csv",
+             "validation_predictions": attempt / "validation_predictions.csv", "validation_log": attempt / "validation.log"}
+    if any(not path.is_file() for path in paths.values()):
+        raise RuntimeError(f"Incomplete post-training artifacts: {attempt}")
+    return paths
+
+
+def prediction_command(root: Path, data: Path, model: Path, output: Path) -> list[str]:
+    return [str(root / ".venv/bin/chemprop"), "predict", "-q", "-i", str(data), "-o", str(output),
+            "--model-path", str(model), "-s", "SMILES", "--accelerator", "gpu", "--devices", "1",
+            "--num-workers", "4", "--batch-size", "64"]
+
+
+def verify_saved_config(path: Path, original_path: Path, attempt: Path) -> None:
+    # Chemprop writes configargparse key=value syntax (not standards-compliant TOML).
+    def read(source):
+        rows = [line.split("=", 1) for line in source.read_text().splitlines()
+                if line.strip() and not line.lstrip().startswith("#")]
+        parsed = {key.strip(): value.strip() for key, value in rows}
+        if len(parsed) != len(rows):
+            raise RuntimeError(f"Duplicate saved configuration key: {source}")
+        return parsed
+    current, original = read(path), read(original_path)
+    if Path(current.pop("output-dir")).resolve() != (attempt / "model").resolve():
+        raise RuntimeError("Recovered model output directory differs.")
+    original.pop("output-dir")
+    if current.pop("remove-checkpoints", "false") != "false":
+        raise RuntimeError("The repaired run must retain checkpoints.")
+    if original.pop("remove-checkpoints", None) != "true" or current != original:
+        raise RuntimeError("Recovered configuration differs from the direction-only repair.")
+
+
+def recover_legacy_candidate(root, output, job, old, job_root, neural, config, delivery, registrations):
+    """Adopt only a complete pre-fix attempt; rerun inference, never infer its duration."""
+    origins = [(fp, ident) for fp, ident in registrations.items()
+               if ident["delivery_commit"] == LEGACY_COMMIT and ident["files"]["repair"] == LEGACY_CODE_HASHES]
+    if not origins:
+        return None
+    eligible = [p for p in sorted(job_root.glob("attempt_*")) if p.is_dir()
+                and not (p / "STARTED.json").exists() and not (p / "CANDIDATE.json").exists()
+                and (p / "model/model_0/checkpoints/last.ckpt").is_file()
+                and (p / "validation_predictions.csv").is_file() and (p / "validation.log").is_file()]
+    if not eligible:
+        return None
+    if len(eligible) != 1:
+        raise RuntimeError(f"Multiple historical complete attempts; refusing to choose by their scores: {job.job_id}")
+    attempt = eligible[0]
+    origin_fp, origin = origins[0]
+    selection = selection_audit(attempt / "train.log", metric="prc", mode="max")
+    paths = attempt_artifacts(attempt / "train.log", selection)
+    old_config = (root / old["outputs"]["log"]["path"]).parent / "model/config.toml"
+    verify_saved_config(paths["config"], old_config, attempt)
+    outputs = {key: entry(root, path) for key, path in paths.items()}
+    evidence_dir = attempt / datetime.now(timezone.utc).strftime("recovery_%Y%m%dT%H%M%S%fZ")
+    evidence_dir.mkdir()
+    snapshot = {"captured_utc": utc(), "run_fingerprint": origin_fp, "outputs": outputs,
+                "registration": entry(root, output / "RUN_REGISTRATION.json"),
+                "gpu_preflight": entry(root, output / "gpu_preflight.json"),
+                "original_config": entry(root, old_config),
+                "runtime_seconds": None, "duration_note": "Not persisted by the interrupted legacy auditor"}
+    write_json(evidence_dir / "snapshot.json", snapshot)
+    commands, rechecks = {}, {}
+    print(f"RECOVER existing trained attempt; checking saved-model inference: {job.job_id}", flush=True)
+    for member, old_key in (("val", "validation_predictions"), ("test", "chemprop_predictions")):
+        result = evidence_dir / f"{member}_predictions.csv"
+        log_path = evidence_dir / f"{member}_predict.log"
+        commands[member] = prediction_command(root, root / old["inputs"][member]["path"], paths["best_model"], result)
+        with log_path.open("w") as log:
+            subprocess.run(commands[member], cwd=root, stdout=log, stderr=subprocess.STDOUT, check=True)
+        pd.testing.assert_frame_equal(pd.read_csv(result), pd.read_csv(paths[old_key]),
+                                      check_dtype=False, atol=1e-7, rtol=1e-6)
+        rechecks[member] = entry(root, result)
+        rechecks[member + "_log"] = entry(root, log_path)
+    for artifact in outputs.values():
+        recorded_file(root, artifact, within=job_root)
+    job_data = asdict(job)
+    job_data["targets"] = list(job.targets)
+    record = {"schema_version": 1, "status": "PENDING_AUDIT", "protocol_id": PROTOCOL_ID,
+              "job_id": job.job_id, "job": job_data, "run_fingerprint": origin_fp,
+              "runtime_seconds": None, "command": fixed_command(neural, config, job,
+                  {key: root / value["path"] for key, value in old["inputs"].items()}, attempt, delivery),
+              "validation_command": prediction_command(root, root / old["inputs"]["val"]["path"],
+                                                        paths["best_model"], paths["validation_predictions"]),
+              "inputs": old["inputs"], "outputs": outputs,
+              "environment": json.loads(recorded_file(root, snapshot["gpu_preflight"]).read_text())["environment"],
+              "execution": {"accelerator": "gpu", "devices": "1"}, "package_environment": origin["package_environment"],
+              "selection": selection, "source_v2_complete_sha256": sha(root / config["paths"]["job_root"] / job.job_id / "COMPLETE.json"),
+              "recovery": {"kind": "legacy_post_training_audit_failure", "snapshot": entry(root, evidence_dir / "snapshot.json"),
+                           "inference_rechecks": rechecks, "inference_commands": commands,
+                           "inference_runtime_environment": {key: os.environ.get(key) for key in
+                               ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "CYP_IGNORED_OMP_NUM_THREADS")},
+                           "training_command_reconstructed": True, "wall_duration_unknown": True}}
+    write_json(attempt / "CANDIDATE.json", record)
+    return record
 
 
 def input_audit(root: Path, config: dict, *, task_group: str | None = None) -> dict:
@@ -166,7 +318,7 @@ def fixed_command(neural, config: dict, job, prepared: dict, attempt: Path,
     return [sys.executable, str(delivery / "scripts/chemprop_prc_max.py"), *original[1:]]
 
 
-def verify_fixed(root: Path, record: dict, job, old: dict, fingerprint: str,
+def verify_fixed(root: Path, record: dict, job, old: dict, registrations: dict,
                  new_job_root: Path, neural, config: dict, command: list[str]) -> pd.DataFrame:
     import torch
     from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
@@ -176,17 +328,39 @@ def verify_fixed(root: Path, record: dict, job, old: dict, fingerprint: str,
     if (record.get("schema_version") != 1 or record.get("status") != "PASS"
             or record.get("job_id") != job.job_id or record.get("job") != expected_job
             or record.get("protocol_id") != PROTOCOL_ID
-            or record.get("run_fingerprint") != fingerprint
+            or record.get("run_fingerprint") not in registrations
             or record.get("command") != command or record.get("inputs") != old["inputs"]):
         raise RuntimeError(f"Invalid revised completion identity: {job.job_id}")
     required = {"log", "training_metrics", "best_model", "best_checkpoint", "last_checkpoint",
                 "chemprop_predictions", "predictions", "validation_predictions", "validation_log", "config"}
     if set(record.get("outputs", {})) != required:
         raise RuntimeError(f"Incomplete revised artifacts: {job.job_id}")
-    if not np.isfinite(record.get("runtime_seconds", np.nan)) or record["runtime_seconds"] <= 0:
+    recovery = record.get("recovery")
+    if recovery:
+        origin = registrations[record["run_fingerprint"]]
+        if (origin["delivery_commit"] != LEGACY_COMMIT or origin["files"]["repair"] != LEGACY_CODE_HASHES
+                or recovery.get("kind") != "legacy_post_training_audit_failure"
+                or recovery.get("wall_duration_unknown") is not True or record.get("runtime_seconds") is not None):
+            raise RuntimeError(f"Invalid historical recovery identity: {job.job_id}")
+        snapshot = json.loads(recorded_file(root, recovery["snapshot"], within=new_job_root).read_text())
+        if snapshot["outputs"] != record["outputs"] or snapshot["run_fingerprint"] != record["run_fingerprint"]:
+            raise RuntimeError(f"Historical recovery snapshot differs: {job.job_id}")
+        for key in ("registration", "gpu_preflight", "original_config"):
+            recorded_file(root, snapshot[key])
+        for artifact in recovery["inference_rechecks"].values():
+            recorded_file(root, artifact, within=new_job_root)
+    elif (not isinstance(record.get("runtime_seconds"), (float, int))
+          or not np.isfinite(record["runtime_seconds"]) or record["runtime_seconds"] <= 0):
         raise RuntimeError(f"Invalid training duration: {job.job_id}")
     inputs = {key: recorded_file(root, value) for key, value in record["inputs"].items()}
     outputs = {key: recorded_file(root, value, within=new_job_root) for key, value in record["outputs"].items()}
+    if recovery:
+        for member, original_key in (("val", "validation_predictions"), ("test", "chemprop_predictions")):
+            replay = recorded_file(root, recovery["inference_rechecks"][member], within=new_job_root)
+            if recovery["inference_commands"][member] != prediction_command(root, inputs[member], outputs["best_model"], replay):
+                raise RuntimeError(f"Historical inference command differs: {job.job_id}")
+            pd.testing.assert_frame_equal(pd.read_csv(replay), pd.read_csv(outputs[original_key]),
+                                          check_dtype=False, atol=1e-7, rtol=1e-6)
     flight = record.get("environment", {})
     if (flight.get("cuda_available") is not True or "4090" not in str(flight.get("device_name"))
             or flight.get("compiled_cuda") != "12.4" or flight.get("compute_capability") != "8.9"
@@ -218,8 +392,10 @@ def verify_fixed(root: Path, record: dict, job, old: dict, fingerprint: str,
             or any(not torch.equal(value, exported_state[key]) for key, value in saved_state.items())):
         raise RuntimeError(f"Exported model differs from the selected checkpoint: {job.job_id}")
     last = torch.load(outputs["last_checkpoint"], map_location="cpu", weights_only=False)
-    if int(last["epoch"]) != selection["final_epoch"]:
-        raise RuntimeError(f"Last checkpoint differs from the final training epoch: {job.job_id}")
+    from tdi_checkpoint_audit import audit_last_checkpoint
+    last_evidence = audit_last_checkpoint(checkpoint, last, selection)
+    if record.get("last_checkpoint_audit") not in (None, last_evidence):
+        raise RuntimeError(f"Recorded last-checkpoint evidence differs: {job.job_id}")
     callbacks = checkpoint["callbacks"]
     for callback in [ModelCheckpoint(monitor="val/prc", mode="max"),
                      EarlyStopping(monitor="val/prc", mode="max", patience=15)]:
@@ -235,6 +411,7 @@ def verify_fixed(root: Path, record: dict, job, old: dict, fingerprint: str,
     expected = neural._validate_job_predictions(root, config, job, inputs["test"], outputs["chemprop_predictions"])
     observed = pd.read_csv(outputs["predictions"])
     pd.testing.assert_frame_equal(observed, expected, check_dtype=False, atol=1e-10, rtol=1e-8)
+    record["last_checkpoint_audit"] = last_evidence
     return observed
 
 
@@ -310,18 +487,13 @@ def run(root: Path, delivery: Path) -> None:
     files = {"frozen": frozen_files, "repair": {p: sha(delivery / p) for p in CODE_FILES}}
     identity = {"protocol": protocol, "files": files, "delivery_commit": git(delivery, "rev-parse", "HEAD"),
                 "package_environment": package_environment()}
-    fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
     output = root / ".runtime/neural-prc-max-v3"
     output.mkdir(parents=True, exist_ok=True)
-    registration = output / "RUN_REGISTRATION.json"
-    if registration.exists():
-        if json.loads(registration.read_text())["run_fingerprint"] != fingerprint:
-            raise RuntimeError("Existing revised run has different code/inputs; its files are preserved.")
-    else:
-        write_json(registration, {"registered_utc": utc(), "run_fingerprint": fingerprint, **identity})
+    fingerprint, registrations = register_revision(output, identity)
     pd.DataFrame(legacy_selection).to_csv(output / "legacy_selection_audit.csv", index=False)
     write_json(output / "input_audit.json", protocol_check)
-    write_json(output / "gpu_preflight.json", flight)
+    if not (output / "gpu_preflight.json").exists():
+        write_json(output / "gpu_preflight.json", flight)
     test_dir = output / "self_tests" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     print("Running real checkpoint + early-stopping self-test before production...", flush=True)
     subprocess.run([sys.executable, str(delivery / "scripts/chemprop_prc_max.py"), "--self-test", str(test_dir)],
@@ -329,6 +501,14 @@ def run(root: Path, delivery: Path) -> None:
     self_test = json.loads((test_dir / "self_test.json").read_text())
     if self_test.get("overall_pass") is not True:
         raise RuntimeError("Real callback self-test did not pass.")
+    print("Checking Lightning 2.6.5 last-checkpoint lifecycle before production...", flush=True)
+    lifecycle_dir = test_dir / "last_checkpoint_lifecycle"
+    subprocess.run([sys.executable, str(delivery / "scripts/tdi_checkpoint_audit.py"), str(lifecycle_dir)],
+                   cwd=root, check=True)
+    lifecycle = json.loads((lifecycle_dir / "self_test.json").read_text())
+    if lifecycle.get("overall_pass") is not True:
+        raise RuntimeError("Real last-checkpoint lifecycle self-test did not pass.")
+    self_test["last_checkpoint_lifecycle"] = lifecycle
     write_json(output / "callback_self_test.json", self_test)
     new_records = {}
     for index, job in enumerate(tdi_jobs):
@@ -341,15 +521,37 @@ def run(root: Path, delivery: Path) -> None:
             record = json.loads(complete.read_text())
             attempt = (root / record["outputs"]["log"]["path"]).parent
             command = fixed_command(neural, config, job, prepared, attempt, delivery)
-            verify_fixed(root, record, job, old, fingerprint, job_root, neural, config, command)
+            verify_fixed(root, record, job, old, registrations, job_root, neural, config, command)
             new_records[job.job_id] = record
             print(f"[{index + 1}/75] REUSE verified {job.job_id}", flush=True)
+            continue
+        candidates = list(job_root.glob("attempt_*/CANDIDATE.json"))
+        if len(candidates) > 1:
+            raise RuntimeError(f"Multiple pending candidates; no score-based choice is allowed: {job.job_id}")
+        candidate = json.loads(candidates[0].read_text()) if candidates else recover_legacy_candidate(
+            root, output, job, old, job_root, neural, config, delivery, registrations)
+        if candidate is not None:
+            if candidate.get("status") != "PENDING_AUDIT":
+                raise RuntimeError(f"Unexpected pending candidate status: {job.job_id}")
+            record = {**candidate, "status": "PASS", "completed_utc": utc(), "audit_fingerprint": fingerprint}
+            attempt = (root / record["outputs"]["log"]["path"]).parent
+            command = fixed_command(neural, config, job, prepared, attempt, delivery)
+            verify_sources(root, delivery, files)
+            verify_fixed(root, record, job, old, registrations, job_root, neural, config, command)
+            write_json(complete, record)
+            new_records[job.job_id] = record
+            print(f"[{index + 1}/75] RECOVERED PASS {job.job_id}; existing training reused", flush=True)
             continue
         attempt = job_root / datetime.now(timezone.utc).strftime("attempt_%Y%m%dT%H%M%S%fZ")
         attempt.mkdir(parents=True, exist_ok=False)
         command = fixed_command(neural, config, job, prepared, attempt, delivery)
         env = os.environ.copy()
         env.update(PYTHONHASHSEED=str(job.seed), CUBLAS_WORKSPACE_CONFIG=":4096:8")
+        runtime_environment = {key: env.get(key) for key in (
+            "OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "CYP_IGNORED_OMP_NUM_THREADS",
+            "PYTHONHASHSEED", "CUBLAS_WORKSPACE_CONFIG")}
+        write_json(attempt / "STARTED.json", {"started_utc": utc(), "run_fingerprint": fingerprint,
+                   "command": command, "runtime_environment": runtime_environment})
         print(f"[{index + 1}/75] TRAIN PRC=max {job.job_id}", flush=True)
         started = time.perf_counter()
         log_path = attempt / "train.log"
@@ -365,37 +567,33 @@ def run(root: Path, delivery: Path) -> None:
         prediction = neural._validate_job_predictions(root, config, job, prepared["test"], model_dir / "test_predictions.csv")
         prediction.to_csv(attempt / "predictions.csv", index=False)
         val_output = attempt / "validation_predictions.csv"
-        val_command = [str(root / ".venv/bin/chemprop"), "predict", "-q", "-i", str(prepared["val"]),
-                       "-o", str(val_output), "--model-path", str(best_model), "-s", "SMILES",
-                       "--accelerator", "gpu", "--devices", "1", "--num-workers", "4", "--batch-size", "64"]
+        val_command = prediction_command(root, prepared["val"], best_model, val_output)
         with (attempt / "validation.log").open("w") as log:
             subprocess.run(val_command, cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
-        targets = {"log": log_path, "config": attempt / "model/config.toml",
-                   "training_metrics": Path(selection["training_metrics_path"]), "best_model": best_model,
-                   "best_checkpoint": best_checkpoints[0], "last_checkpoint": model_dir / "checkpoints/last.ckpt",
-                   "chemprop_predictions": model_dir / "test_predictions.csv", "predictions": attempt / "predictions.csv",
-                   "validation_predictions": val_output, "validation_log": attempt / "validation.log"}
+        targets = attempt_artifacts(log_path, selection)
         job_data = asdict(job)
         job_data["targets"] = list(job.targets)
-        record = {"schema_version": 1, "status": "PASS", "protocol_id": PROTOCOL_ID,
+        record = {"schema_version": 1, "status": "PENDING_AUDIT", "protocol_id": PROTOCOL_ID,
                   "job_id": job.job_id, "job": job_data, "run_fingerprint": fingerprint,
-                  "completed_utc": utc(), "runtime_seconds": duration, "command": command,
+                  "runtime_seconds": duration, "command": command, "runtime_environment": runtime_environment,
                   "validation_command": val_command, "inputs": old["inputs"],
                   "outputs": {key: entry(root, path) for key, path in targets.items()},
                   "environment": flight["environment"], "execution": {"accelerator": "gpu", "devices": "1"},
                   "package_environment": identity["package_environment"],
                   "selection": selection, "source_v2_complete_sha256": original_manifest["completion_manifest_hashes"][job.job_id]}
+        write_json(attempt / "CANDIDATE.json", record)
+        record.update(status="PASS", completed_utc=utc(), audit_fingerprint=fingerprint)
         verify_sources(root, delivery, files)
-        verify_fixed(root, record, job, old, fingerprint, job_root, neural, config, command)
+        verify_fixed(root, record, job, old, registrations, job_root, neural, config, command)
         write_json(complete, record)
         new_records[job.job_id] = record
         print(f"[{index + 1}/75] PASS epoch={selection['chosen_epoch']} validation_PRC={selection['chosen_value']:.6f}", flush=True)
     collect(root, delivery, output, config, neural, job_list, old_records, new_records,
-            fingerprint, files, original_manifest, self_test)
+            fingerprint, registrations, files, original_manifest, self_test)
 
 
 def collect(root, delivery, output, config, neural, jobs, old_records, new_records,
-            fingerprint, files, original_manifest, self_test):
+            fingerprint, registrations, files, original_manifest, self_test):
     from cyp_blind.neural_result_audit import _independent_official_metrics, _load_official_soft_threshold_rae
     frames, provenance, selections = [], {}, []
     print("Independently auditing corrected jobs and the combined 200-job baseline...", flush=True)
@@ -410,10 +608,12 @@ def collect(root, delivery, output, config, neural, jobs, old_records, new_recor
         attempt = (root / record["outputs"]["log"]["path"]).parent
         prepared = {key: root / value["path"] for key, value in old["inputs"].items()}
         command = fixed_command(neural, config, job, prepared, attempt, delivery)
-        frames.append(verify_fixed(root, record, job, old, fingerprint, output / "jobs" / job.job_id, neural, config, command))
-        provenance[job.job_id] = {"origin": "v3_prc_max_rerun", "run_fingerprint": fingerprint,
+        frames.append(verify_fixed(root, record, job, old, registrations, output / "jobs" / job.job_id, neural, config, command))
+        provenance[job.job_id] = {"origin": "v3_prc_max_rerun", "run_fingerprint": record["run_fingerprint"],
+                                 "training_delivery_commit": registrations[record["run_fingerprint"]]["delivery_commit"],
+                                 "audit_fingerprint": fingerprint, "recovered_after_audit_failure": bool(record.get("recovery")),
                                  "completion_sha256": sha(output / "jobs" / job.job_id / "COMPLETE.json")}
-        selections.append({"job_id": job.job_id, **record["selection"]})
+        selections.append({"job_id": job.job_id, **record["selection"], **record["last_checkpoint_audit"]})
     prediction = pd.concat(frames, ignore_index=True)
     original = pd.read_csv(root / "reports/neural_v2/neural_family_predictions.csv.gz")
     keys = ["mode", "seed", "Molecule_Name", "endpoint"]
@@ -451,11 +651,13 @@ def collect(root, delivery, output, config, neural, jobs, old_records, new_recor
                 "generated_utc": utc(), "complete": True, "jobs": 200, "rerun_tdi_jobs": 75,
                 "reused_direct_jobs": 125, "prediction_rows": 15340, "expected_prediction_rows": 15340,
                 "seeds": config["seeds"], "files": files, "job_provenance": provenance,
+                "training_registrations": registrations,
                 "outputs": {str(p.relative_to(root)): sha(p) for p in paths},
                 "flagship_claim_authorized": False, "outer_results_seen_before_correction": True}
     write_json(output / "neural_family_manifest.json", manifest)
     checks = ["original_200_artifacts_and_frozen_inputs", "original_regression_min_mae_selection",
               "actual_callback_direction_self_test", "corrected_75_identity_and_hashes",
+              "actual_last_checkpoint_lifecycle_self_test", "corrected_75_last_save_metadata_and_weights",
               "corrected_75_required_gpu", "corrected_75_max_prc_checkpoint_selection",
               "corrected_75_max_prc_early_stopping", "corrected_75_checkpoint_callback_state",
               "corrected_75_exported_weights_match_selected_checkpoint",
@@ -483,6 +685,8 @@ def collect(root, delivery, output, config, neural, jobs, old_records, new_recor
     with zipfile.ZipFile(target, "x", zipfile.ZIP_DEFLATED) as archive:
         for name in names:
             archive.write(output / name, name)
+        for path in sorted((output / "registrations").glob("*.json")):
+            archive.write(path, str(path.relative_to(output)))
     print(summary.to_string(index=False), flush=True)
     print(f"PASS: 75 corrected TDI jobs, 125 reused regression jobs, and result audit completed.\nReview ZIP: {target}", flush=True)
 
