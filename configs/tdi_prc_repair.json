@@ -1,0 +1,18 @@
+{
+  "protocol_id": "neural-prc-max-v3-20260907",
+  "reason": "All 75 v2 TDI jobs selected minimum validation PRC; BinaryAUPRC inherited higher_is_better=null",
+  "frozen_v2_commit": "bc00641390c559ec696506d6fd07edb77c514c13",
+  "frozen_v2_config_sha256": "0120a2c53b8629b16adbfc11868c57b36cf0dcc33c2b9f67a01bacd82b425db9",
+  "frozen_preparation_sha256": "3569de2aed77b6018e2a587de2260110195bb2cc3d626aa4e76a5d9f075882cb",
+  "tdi_jobs_to_rerun": 75,
+  "direct_jobs_to_verify_and_reuse": 125,
+  "metric": "prc",
+  "checkpoint_mode": "max",
+  "early_stopping_mode": "max",
+  "classification_threshold": 0.5,
+  "change_loss_sampling_architecture_or_seeds": false,
+  "retain_best_and_last_checkpoints": true,
+  "test_results_seen_before_correction": true,
+  "selection_uses": "inner_validation_only",
+  "flagship_claim_authorized": false
+}

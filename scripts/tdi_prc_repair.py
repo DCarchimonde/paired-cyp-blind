@@ -1,0 +1,499 @@
+"""Rerun the 75 affected TDI jobs with explicit PRC maximization.
+
+Reuses verified v2 regression artifacts with their original provenance. All new
+artifacts live in a separate ignored runtime directory; the v2 source, data,
+completed jobs and summaries remain available for historical reproduction.
+"""
+from __future__ import annotations
+
+import argparse
+from dataclasses import asdict
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+import zipfile
+
+import numpy as np
+import pandas as pd
+
+
+PROTOCOL_ID = "neural-prc-max-v3-20260907"
+CODE_FILES = ("scripts/chemprop_prc_max.py", "scripts/tdi_prc_repair.py",
+              "scripts/start_tdi_prc_repair_4090.sh", "configs/tdi_prc_repair.json")
+
+
+def sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def utc() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def write_json(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + f".{os.getpid()}.tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        json.dump(value, handle, indent=2, sort_keys=True, allow_nan=False)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    tmp.replace(path)
+
+
+def git(root: Path, *args: str) -> str:
+    return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+
+
+def recorded_file(root: Path, entry: dict, *, within: Path | None = None) -> Path:
+    path = (root / entry["path"]).resolve(strict=True)
+    if not path.is_relative_to((within or root).resolve()) or not path.is_file():
+        raise RuntimeError(f"Unexpected artifact path: {entry['path']}")
+    if sha(path) != entry["sha256"]:
+        raise RuntimeError(f"Artifact hash mismatch: {entry['path']}")
+    return path
+
+
+def entry(root: Path, path: Path) -> dict:
+    return {"path": str(path.resolve().relative_to(root)), "sha256": sha(path)}
+
+
+def input_audit(root: Path, config: dict, *, task_group: str | None = None) -> dict:
+    """Read-only check of exact membership, raw labels, classes and file hashes."""
+    raw = pd.read_csv(root / config["inputs"]["training"]).set_index("Molecule_Name")
+    family = pd.read_csv(root / config["inputs"]["family_split"]).set_index("Molecule_Name")
+    manifest = json.loads((root / config["paths"]["prepared_data"] / "preparation_manifest.json").read_text())
+    if raw.index.has_duplicates or family.index.has_duplicates:
+        raise RuntimeError("Duplicate raw/family molecule identifiers.")
+    specs = partitions = 0
+    for spec in manifest["data_specs"].values():
+        if task_group and spec["task_group"] != task_group:
+            continue
+        specs += 1
+        eligible = raw[raw[spec["targets"]].notna().any(axis=1)]
+        assigned = family.outer_fold.reindex(eligible.index)
+        masks = {"test": assigned.eq(spec["fold"]), "val": assigned.eq((spec["fold"] + 1) % 5),
+                 "train": ~assigned.isin([spec["fold"], (spec["fold"] + 1) % 5])}
+        for member, artifact in spec["files"].items():
+            frame = pd.read_csv(recorded_file(root, artifact))
+            partitions += 1
+            expected_names = eligible.index[masks[member]].tolist()
+            if (frame.Molecule_Name.tolist() != expected_names
+                    or frame.columns.tolist() != ["Molecule_Name", "SMILES", *spec["targets"]]
+                    or len(frame) != spec["counts"][member]):
+                raise RuntimeError(f"Prepared membership/schema differs: {artifact['path']}")
+            for target in spec["targets"]:
+                values = raw.loc[frame.Molecule_Name, target]
+                if spec["task_group"] == "tdi":
+                    values = values.astype("boolean").astype("Float64").to_numpy(float, na_value=np.nan)
+                else:
+                    values = values.to_numpy(float)
+                if not np.allclose(frame[target], values, equal_nan=True, rtol=1e-12, atol=1e-12):
+                    raise RuntimeError(f"Prepared labels differ: {artifact['path']}/{target}")
+                if spec["task_group"] == "tdi" and member in ("train", "val"):
+                    if set(frame[target].dropna().tolist()) != {0., 1.}:
+                        raise RuntimeError(f"Degenerate training/validation classes: {artifact['path']}/{target}")
+    return {"overall_pass": True, "data_specs": specs, "partitions": partitions,
+            "exact_ordered_membership": True, "raw_labels": True, "file_hashes": True,
+            "tdi_training_validation_two_classes": True, "read_only": True}
+
+
+def selection_audit(log_path: Path, *, metric: str, mode: str,
+                    epochs: int = 100, patience: int = 15) -> dict:
+    if mode not in ("min", "max"):
+        raise ValueError("An explicit min/max direction is required.")
+    log = log_path.read_text(encoding="utf-8")
+    matches = re.findall(r"Restoring states from the checkpoint path at .*best-epoch=(\d+)-val_"
+                         + re.escape(metric) + r"=", log)
+    if len(matches) != 1:
+        raise RuntimeError(f"Expected one restored checkpoint: {log_path}")
+    chosen = int(matches[0])
+    paths = list(log_path.parent.glob("model/model_0/trainer_logs/version_*/metrics.csv"))
+    if len(paths) != 1:
+        raise RuntimeError(f"Expected one CSV training curve: {log_path}")
+    frame = pd.read_csv(paths[0])
+    curve = frame.dropna(subset=["val/" + metric]).set_index("epoch")["val/" + metric]
+    if curve.empty or curve.index.has_duplicates or not np.isfinite(curve).all():
+        raise RuntimeError(f"Invalid validation curve: {paths[0]}")
+    train = frame.dropna(subset=["train_loss_epoch"]).set_index("epoch")["train_loss_epoch"]
+    if not train.index.equals(curve.index) or not np.isfinite(train).all():
+        raise RuntimeError(f"Missing/nonfinite training epoch loss: {paths[0]}")
+    if list(curve.index) != list(range(int(curve.index.max()) + 1)) or chosen not in curve.index:
+        raise RuntimeError(f"Incomplete epoch coverage: {paths[0]}")
+    optimum = float(curve.max() if mode == "max" else curve.min())
+    if not np.isclose(float(curve.loc[chosen]), optimum, atol=1e-9, rtol=1e-8):
+        raise RuntimeError(f"Wrong checkpoint direction: {log_path}: epoch {chosen}, "
+                           f"value {curve.loc[chosen]}, required {mode}={optimum}")
+    final_epoch = int(curve.index.max())
+    if final_epoch != min(epochs - 1, chosen + patience):
+        raise RuntimeError(f"Early stopping does not match the selected optimum: {log_path}")
+    return {"metric": metric, "mode": mode, "chosen_epoch": chosen,
+            "chosen_value": float(curve.loc[chosen]), "min_value": float(curve.min()),
+            "max_value": float(curve.max()), "final_epoch": final_epoch,
+            "training_metrics_path": str(paths[0]), "selection_verified": True}
+
+
+def validation_prc(val_path: Path, predictions_path: Path, targets: tuple[str, ...]) -> float:
+    from sklearn.metrics import auc, precision_recall_curve
+    truth = pd.read_csv(val_path)
+    prediction = pd.read_csv(predictions_path)
+    if len(truth) != len(prediction) or not truth.SMILES.equals(prediction.SMILES):
+        raise RuntimeError("Validation prediction order/SMILES mismatch.")
+    y = truth[list(targets)].to_numpy(float)
+    p = prediction[list(targets)].to_numpy(float)
+    mask = np.isfinite(y)
+    if not np.isfinite(p).all() or not ((0 <= p) & (p <= 1)).all():
+        raise RuntimeError("Invalid validation probabilities.")
+    # Matches the frozen Chemprop PRC: flatten observed multitask labels and
+    # integrate the precision-recall curve. This is not average_precision_score.
+    precision, recall, _ = precision_recall_curve(y[mask].astype(int), p[mask])
+    return float(auc(recall, precision))
+
+
+def fixed_command(neural, config: dict, job, prepared: dict, attempt: Path,
+                  delivery: Path) -> list[str]:
+    original = neural.build_chemprop_command(
+        config, job, train_path=prepared["train"], val_path=prepared["val"],
+        test_path=prepared["test"], output_dir=attempt / "model", accelerator="gpu", devices="1")
+    # Retain best and last checkpoints for independent epoch/weight inspection.
+    original.remove("--remove-checkpoints")
+    return [sys.executable, str(delivery / "scripts/chemprop_prc_max.py"), *original[1:]]
+
+
+def verify_fixed(root: Path, record: dict, job, old: dict, fingerprint: str,
+                 new_job_root: Path, neural, config: dict, command: list[str]) -> pd.DataFrame:
+    import torch
+    from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+    from chemprop_prc_max import environment as package_environment
+    expected_job = asdict(job)
+    expected_job["targets"] = list(job.targets)
+    if (record.get("schema_version") != 1 or record.get("status") != "PASS"
+            or record.get("job_id") != job.job_id or record.get("job") != expected_job
+            or record.get("protocol_id") != PROTOCOL_ID
+            or record.get("run_fingerprint") != fingerprint
+            or record.get("command") != command or record.get("inputs") != old["inputs"]):
+        raise RuntimeError(f"Invalid revised completion identity: {job.job_id}")
+    required = {"log", "training_metrics", "best_model", "best_checkpoint", "last_checkpoint",
+                "chemprop_predictions", "predictions", "validation_predictions", "validation_log", "config"}
+    if set(record.get("outputs", {})) != required:
+        raise RuntimeError(f"Incomplete revised artifacts: {job.job_id}")
+    if not np.isfinite(record.get("runtime_seconds", np.nan)) or record["runtime_seconds"] <= 0:
+        raise RuntimeError(f"Invalid training duration: {job.job_id}")
+    inputs = {key: recorded_file(root, value) for key, value in record["inputs"].items()}
+    outputs = {key: recorded_file(root, value, within=new_job_root) for key, value in record["outputs"].items()}
+    flight = record.get("environment", {})
+    if (flight.get("cuda_available") is not True or "4090" not in str(flight.get("device_name"))
+            or flight.get("compiled_cuda") != "12.4" or flight.get("compute_capability") != "8.9"
+            or float(flight.get("vram_gib", 0)) < 20 or record.get("execution") != {"accelerator": "gpu", "devices": "1"}):
+        raise RuntimeError(f"Invalid GPU evidence: {job.job_id}")
+    selection = selection_audit(outputs["log"], metric="prc", mode="max")
+    markers = [line.split(" ", 1)[1] for line in outputs["log"].read_text().splitlines()
+               if line.startswith("PRC_DIRECTION_FIX ")]
+    if len(markers) != 1:
+        raise RuntimeError(f"Missing explicit PRC correction evidence: {job.job_id}")
+    marker = json.loads(markers[0])
+    actual_package = package_environment()
+    if (record.get("package_environment") != actual_package
+            or any(marker.get(key) != value for key, value in actual_package.items())
+            or marker.get("before") is not None or marker.get("higher_is_better") is not True
+            or marker.get("checkpoint_mode") != "max" or marker.get("early_stopping_mode") != "max"):
+        raise RuntimeError(f"Package source or PRC correction evidence differs: {job.job_id}")
+    if record.get("selection") != selection:
+        raise RuntimeError(f"Recorded selection differs from the actual training curve: {job.job_id}")
+    if record.get("source_v2_complete_sha256") != sha(root / config["paths"]["job_root"] / job.job_id / "COMPLETE.json"):
+        raise RuntimeError(f"Original completion reference changed: {job.job_id}")
+    checkpoint = torch.load(outputs["best_checkpoint"], map_location="cpu", weights_only=False)
+    if int(checkpoint["epoch"]) != selection["chosen_epoch"]:
+        raise RuntimeError(f"Saved checkpoint epoch differs from restored/logged epoch: {job.job_id}")
+    exported = torch.load(outputs["best_model"], map_location="cpu", weights_only=False)
+    saved_state, exported_state = checkpoint["state_dict"], exported["state_dict"]
+    if (exported.get("output_columns") != list(job.targets)
+            or set(saved_state) != set(exported_state)
+            or any(not torch.equal(value, exported_state[key]) for key, value in saved_state.items())):
+        raise RuntimeError(f"Exported model differs from the selected checkpoint: {job.job_id}")
+    last = torch.load(outputs["last_checkpoint"], map_location="cpu", weights_only=False)
+    if int(last["epoch"]) != selection["final_epoch"]:
+        raise RuntimeError(f"Last checkpoint differs from the final training epoch: {job.job_id}")
+    callbacks = checkpoint["callbacks"]
+    for callback in [ModelCheckpoint(monitor="val/prc", mode="max"),
+                     EarlyStopping(monitor="val/prc", mode="max", patience=15)]:
+        if callback.state_key not in callbacks:
+            raise RuntimeError(f"Checkpoint lacks the expected max callback state: {job.job_id}")
+    best_key = ModelCheckpoint(monitor="val/prc", mode="max").state_key
+    if not np.isclose(float(callbacks[best_key]["best_model_score"]), selection["chosen_value"], atol=1e-8):
+        raise RuntimeError(f"Checkpoint callback score mismatch: {job.job_id}")
+    observed_prc = validation_prc(inputs["val"], outputs["validation_predictions"], job.targets)
+    if not np.isclose(observed_prc, selection["chosen_value"], atol=2e-5, rtol=1e-5):
+        raise RuntimeError(f"Best model validation PRC cannot be reproduced: {job.job_id}: "
+                           f"{observed_prc} != {selection['chosen_value']}")
+    expected = neural._validate_job_predictions(root, config, job, inputs["test"], outputs["chemprop_predictions"])
+    observed = pd.read_csv(outputs["predictions"])
+    pd.testing.assert_frame_equal(observed, expected, check_dtype=False, atol=1e-10, rtol=1e-8)
+    return observed
+
+
+def verify_sources(root: Path, delivery: Path, files: dict) -> None:
+    for namespace, mapping in files.items():
+        base = root if namespace == "frozen" else delivery
+        for relative, digest in mapping.items():
+            if sha(base / relative) != digest:
+                raise RuntimeError(f"Run source/input changed: {namespace}/{relative}")
+
+
+def run(root: Path, delivery: Path) -> None:
+    root = root.resolve(strict=True)
+    delivery = delivery.resolve(strict=True)
+    sys.path.insert(0, str(root / "src"))
+    from cyp_blind import neural_baselines as neural
+    from cyp_blind.io import load_yaml
+    from chemprop_prc_max import environment as package_environment
+
+    protocol = json.loads((delivery / "configs/tdi_prc_repair.json").read_text())
+    config_path = root / "configs/neural_baselines.yaml"
+    config = load_yaml(config_path)
+    if (protocol["protocol_id"] != PROTOCOL_ID or protocol["checkpoint_mode"] != "max"
+            or protocol["early_stopping_mode"] != "max" or protocol["classification_threshold"] != 0.5
+            or protocol["tdi_jobs_to_rerun"] != 75 or protocol["direct_jobs_to_verify_and_reuse"] != 125
+            or protocol["change_loss_sampling_architecture_or_seeds"] is not False
+            or sha(config_path) != protocol["frozen_v2_config_sha256"]
+            or sha(root / config["paths"]["prepared_data"] / "preparation_manifest.json") != protocol["frozen_preparation_sha256"]
+            or git(root, "rev-parse", "HEAD") != protocol["frozen_v2_commit"]):
+        raise RuntimeError("The reviewed v2 data/configuration or direction-only repair contract changed.")
+    # Require these exact repair files to have been committed. Other user files,
+    # including downloaded ZIPs, do not make the recorded code ambiguous.
+    for relative in CODE_FILES:
+        committed = subprocess.check_output(["git", "-C", str(delivery), "show", "HEAD:" + relative])
+        if committed != (delivery / relative).read_bytes():
+            raise RuntimeError(f"Uncommitted repair source: {relative}")
+    flight = neural.preflight(config_path, require_gpu=True)
+    if not flight["overall_pass"]:
+        raise RuntimeError(f"Frozen GPU/dependency preflight failed: {flight['checks']}")
+    protocol_check = input_audit(root, config)
+    if not protocol_check["overall_pass"] or protocol_check["data_specs"] != 40:
+        raise RuntimeError("Frozen data/partition audit failed.")
+    original_manifest_path = root / "reports/neural_v2/neural_family_manifest.json"
+    original_manifest = json.loads(original_manifest_path.read_text())
+    if original_manifest.get("jobs") != 200 or original_manifest.get("complete") is not True:
+        raise RuntimeError("The completed reviewed v2 run is required.")
+    for relative, digest in {**original_manifest["inputs"], **original_manifest["outputs"]}.items():
+        if sha(root / relative) != digest:
+            raise RuntimeError(f"Original summary/input hash mismatch: {relative}")
+    job_list = neural.neural_jobs(config)
+    old_records, direct_frames, legacy_selection = {}, [], []
+    print("Verifying all 200 original jobs and checkpoint directions...", flush=True)
+    for index, job in enumerate(job_list):
+        complete = root / config["paths"]["job_root"] / job.job_id / "COMPLETE.json"
+        if sha(complete) != original_manifest["completion_manifest_hashes"][job.job_id]:
+            raise RuntimeError(f"Original completion changed: {job.job_id}")
+        old = neural.validate_completion(config_path, job)
+        old_records[job.job_id] = old
+        metric = "mae" if job.task_group == "direct" else "prc"
+        selection = selection_audit(root / old["outputs"]["log"]["path"], metric=metric, mode="min")
+        legacy_selection.append({"job_id": job.job_id, "task_group": job.task_group, **selection})
+        if job.task_group == "direct":
+            direct_frames.append(pd.read_csv(root / old["outputs"]["predictions"]["path"]))
+        if (index + 1) % 25 == 0:
+            print(f"Verified original jobs: {index + 1}/200", flush=True)
+    tdi_jobs = [job for job in job_list if job.task_group == "tdi"]
+    if len(tdi_jobs) != 75 or len(direct_frames) != 125:
+        raise RuntimeError("Unexpected job matrix.")
+    frozen_files = {**original_manifest["inputs"], **original_manifest["outputs"],
+                    str(original_manifest_path.relative_to(root)): sha(original_manifest_path)}
+    frozen_files.update({str((root / config["paths"]["job_root"] / job_id / "COMPLETE.json").relative_to(root)): digest
+                         for job_id, digest in original_manifest["completion_manifest_hashes"].items()})
+    files = {"frozen": frozen_files, "repair": {p: sha(delivery / p) for p in CODE_FILES}}
+    identity = {"protocol": protocol, "files": files, "delivery_commit": git(delivery, "rev-parse", "HEAD"),
+                "package_environment": package_environment()}
+    fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+    output = root / ".runtime/neural-prc-max-v3"
+    output.mkdir(parents=True, exist_ok=True)
+    registration = output / "RUN_REGISTRATION.json"
+    if registration.exists():
+        if json.loads(registration.read_text())["run_fingerprint"] != fingerprint:
+            raise RuntimeError("Existing revised run has different code/inputs; its files are preserved.")
+    else:
+        write_json(registration, {"registered_utc": utc(), "run_fingerprint": fingerprint, **identity})
+    pd.DataFrame(legacy_selection).to_csv(output / "legacy_selection_audit.csv", index=False)
+    write_json(output / "input_audit.json", protocol_check)
+    write_json(output / "gpu_preflight.json", flight)
+    test_dir = output / "self_tests" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    print("Running real checkpoint + early-stopping self-test before production...", flush=True)
+    subprocess.run([sys.executable, str(delivery / "scripts/chemprop_prc_max.py"), "--self-test", str(test_dir)],
+                   cwd=root, check=True)
+    self_test = json.loads((test_dir / "self_test.json").read_text())
+    if self_test.get("overall_pass") is not True:
+        raise RuntimeError("Real callback self-test did not pass.")
+    write_json(output / "callback_self_test.json", self_test)
+    new_records = {}
+    for index, job in enumerate(tdi_jobs):
+        verify_sources(root, delivery, files)
+        old = old_records[job.job_id]
+        prepared = {key: recorded_file(root, value) for key, value in old["inputs"].items()}
+        job_root = output / "jobs" / job.job_id
+        complete = job_root / "COMPLETE.json"
+        if complete.exists():
+            record = json.loads(complete.read_text())
+            attempt = (root / record["outputs"]["log"]["path"]).parent
+            command = fixed_command(neural, config, job, prepared, attempt, delivery)
+            verify_fixed(root, record, job, old, fingerprint, job_root, neural, config, command)
+            new_records[job.job_id] = record
+            print(f"[{index + 1}/75] REUSE verified {job.job_id}", flush=True)
+            continue
+        attempt = job_root / datetime.now(timezone.utc).strftime("attempt_%Y%m%dT%H%M%S%fZ")
+        attempt.mkdir(parents=True, exist_ok=False)
+        command = fixed_command(neural, config, job, prepared, attempt, delivery)
+        env = os.environ.copy()
+        env.update(PYTHONHASHSEED=str(job.seed), CUBLAS_WORKSPACE_CONFIG=":4096:8")
+        print(f"[{index + 1}/75] TRAIN PRC=max {job.job_id}", flush=True)
+        started = time.perf_counter()
+        log_path = attempt / "train.log"
+        with log_path.open("w") as log:
+            subprocess.run(command, cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+        duration = time.perf_counter() - started
+        selection = selection_audit(log_path, metric="prc", mode="max")
+        model_dir = attempt / "model/model_0"
+        best_model = model_dir / "best.pt"
+        best_checkpoints = list((model_dir / "checkpoints").glob("best-epoch=*-val_prc=*.ckpt"))
+        if len(best_checkpoints) != 1:
+            raise RuntimeError(f"Expected one retained best checkpoint: {job.job_id}")
+        prediction = neural._validate_job_predictions(root, config, job, prepared["test"], model_dir / "test_predictions.csv")
+        prediction.to_csv(attempt / "predictions.csv", index=False)
+        val_output = attempt / "validation_predictions.csv"
+        val_command = [str(root / ".venv/bin/chemprop"), "predict", "-q", "-i", str(prepared["val"]),
+                       "-o", str(val_output), "--model-path", str(best_model), "-s", "SMILES",
+                       "--accelerator", "gpu", "--devices", "1", "--num-workers", "4", "--batch-size", "64"]
+        with (attempt / "validation.log").open("w") as log:
+            subprocess.run(val_command, cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+        targets = {"log": log_path, "config": attempt / "model/config.toml",
+                   "training_metrics": Path(selection["training_metrics_path"]), "best_model": best_model,
+                   "best_checkpoint": best_checkpoints[0], "last_checkpoint": model_dir / "checkpoints/last.ckpt",
+                   "chemprop_predictions": model_dir / "test_predictions.csv", "predictions": attempt / "predictions.csv",
+                   "validation_predictions": val_output, "validation_log": attempt / "validation.log"}
+        job_data = asdict(job)
+        job_data["targets"] = list(job.targets)
+        record = {"schema_version": 1, "status": "PASS", "protocol_id": PROTOCOL_ID,
+                  "job_id": job.job_id, "job": job_data, "run_fingerprint": fingerprint,
+                  "completed_utc": utc(), "runtime_seconds": duration, "command": command,
+                  "validation_command": val_command, "inputs": old["inputs"],
+                  "outputs": {key: entry(root, path) for key, path in targets.items()},
+                  "environment": flight["environment"], "execution": {"accelerator": "gpu", "devices": "1"},
+                  "package_environment": identity["package_environment"],
+                  "selection": selection, "source_v2_complete_sha256": original_manifest["completion_manifest_hashes"][job.job_id]}
+        verify_sources(root, delivery, files)
+        verify_fixed(root, record, job, old, fingerprint, job_root, neural, config, command)
+        write_json(complete, record)
+        new_records[job.job_id] = record
+        print(f"[{index + 1}/75] PASS epoch={selection['chosen_epoch']} validation_PRC={selection['chosen_value']:.6f}", flush=True)
+    collect(root, delivery, output, config, neural, job_list, old_records, new_records,
+            fingerprint, files, original_manifest, self_test)
+
+
+def collect(root, delivery, output, config, neural, jobs, old_records, new_records,
+            fingerprint, files, original_manifest, self_test):
+    from cyp_blind.neural_result_audit import _independent_official_metrics, _load_official_soft_threshold_rae
+    frames, provenance, selections = [], {}, []
+    print("Independently auditing corrected jobs and the combined 200-job baseline...", flush=True)
+    for job in jobs:
+        old = neural.validate_completion(root / "configs/neural_baselines.yaml", job)
+        if job.task_group == "direct":
+            frames.append(pd.read_csv(root / old["outputs"]["predictions"]["path"]))
+            provenance[job.job_id] = {"origin": "v2_regression_unchanged", "git_head": old["git_head"],
+                                     "completion_sha256": original_manifest["completion_manifest_hashes"][job.job_id]}
+            continue
+        record = new_records[job.job_id]
+        attempt = (root / record["outputs"]["log"]["path"]).parent
+        prepared = {key: root / value["path"] for key, value in old["inputs"].items()}
+        command = fixed_command(neural, config, job, prepared, attempt, delivery)
+        frames.append(verify_fixed(root, record, job, old, fingerprint, output / "jobs" / job.job_id, neural, config, command))
+        provenance[job.job_id] = {"origin": "v3_prc_max_rerun", "run_fingerprint": fingerprint,
+                                 "completion_sha256": sha(output / "jobs" / job.job_id / "COMPLETE.json")}
+        selections.append({"job_id": job.job_id, **record["selection"]})
+    prediction = pd.concat(frames, ignore_index=True)
+    original = pd.read_csv(root / "reports/neural_v2/neural_family_predictions.csv.gz")
+    keys = ["mode", "seed", "Molecule_Name", "endpoint"]
+    if len(prediction) != 15340 or prediction.duplicated(keys).any():
+        raise RuntimeError("Revised prediction coverage/count mismatch.")
+    metadata = keys + ["model", "fold", "family_id", "task", "y_true", "y_true_lower", "y_true_upper"]
+    pd.testing.assert_frame_equal(prediction[metadata].sort_values(keys).reset_index(drop=True),
+                                  original[metadata].sort_values(keys).reset_index(drop=True),
+                                  check_dtype=False, atol=1e-12, rtol=1e-12)
+    pd.testing.assert_frame_equal(prediction[prediction.task.eq("regression")].sort_values(keys).reset_index(drop=True),
+                                  original[original.task.eq("regression")].sort_values(keys).reset_index(drop=True),
+                                  check_dtype=False, atol=1e-12, rtol=1e-12)
+    official = _load_official_soft_threshold_rae(root)
+    metric_frames = []
+    for seed, group in prediction.groupby("seed", sort=True):
+        observed = neural.summarize_predictions(group)
+        expected = _independent_official_metrics(group, official)
+        pd.testing.assert_frame_equal(observed, expected, check_dtype=False, atol=1e-10, rtol=1e-8)
+        observed.insert(0, "seed", int(seed))
+        metric_frames.append(observed)
+    metrics = pd.concat(metric_frames, ignore_index=True)
+    primary = metrics[metrics.scope.eq("pooled") & metrics.endpoint.isin(["MA", "CYP3A4_is_TDI", "CYP2D6_is_TDI"])]
+    summary = primary.groupby(["model", "endpoint", "metric"]).value.agg(["mean", "std", "median", "min", "max", "count"]).reset_index()
+    if len(metrics) != 420 or len(summary) != 6:
+        raise RuntimeError("Revised metric/summary row count mismatch.")
+    paths = [output / "neural_family_predictions.csv.gz", output / "neural_family_metrics.csv", output / "neural_family_seed_summary.csv"]
+    neural._write_deterministic_csv_gzip(prediction, paths[0])
+    metrics.to_csv(paths[1], index=False)
+    summary.to_csv(paths[2], index=False)
+    for path, expected in zip(paths, [prediction, metrics, summary], strict=True):
+        pd.testing.assert_frame_equal(pd.read_csv(path), expected, check_dtype=False, atol=1e-10, rtol=1e-8)
+    pd.DataFrame(selections).to_csv(output / "corrected_selection_audit.csv", index=False)
+    verify_sources(root, delivery, files)
+    manifest = {"schema_version": 3, "protocol_id": PROTOCOL_ID, "run_fingerprint": fingerprint,
+                "generated_utc": utc(), "complete": True, "jobs": 200, "rerun_tdi_jobs": 75,
+                "reused_direct_jobs": 125, "prediction_rows": 15340, "expected_prediction_rows": 15340,
+                "seeds": config["seeds"], "files": files, "job_provenance": provenance,
+                "outputs": {str(p.relative_to(root)): sha(p) for p in paths},
+                "flagship_claim_authorized": False, "outer_results_seen_before_correction": True}
+    write_json(output / "neural_family_manifest.json", manifest)
+    checks = ["original_200_artifacts_and_frozen_inputs", "original_regression_min_mae_selection",
+              "actual_callback_direction_self_test", "corrected_75_identity_and_hashes",
+              "corrected_75_required_gpu", "corrected_75_max_prc_checkpoint_selection",
+              "corrected_75_max_prc_early_stopping", "corrected_75_checkpoint_callback_state",
+              "corrected_75_exported_weights_match_selected_checkpoint",
+              "corrected_75_validation_prc_recomputed_from_saved_model",
+              "predictions_match_job_artifacts_and_raw_labels", "prediction_coverage_exact",
+              "regression_predictions_unchanged", "official_420_metrics_recomputed",
+              "six_seed_summaries_recomputed", "source_and_input_hashes_unchanged"]
+    audit = {"overall_pass": True, "protocol_id": PROTOCOL_ID, "generated_utc": utc(),
+             "checks": [{"check_id": check, "status": "PASS", "critical": True} for check in checks],
+             "summary": {"completed_jobs": 200, "rerun_tdi_jobs": 75, "reused_direct_jobs": 125,
+                         "prediction_rows": 15340, "metric_rows": 420, "seed_summary_rows": 6},
+             "flagship_claim_authorized": False, "callback_self_test": self_test}
+    write_json(output / "neural_result_audit.json", audit)
+    report = "# Corrected neural baseline audit\n\nPASS: 75 PRC-max TDI reruns + 125 verified unchanged regression jobs.\n\n"
+    report += "The v2 TDI jobs selected minimum PRC and remain historical implementation-defective artifacts.\n"
+    report += "The repaired run does not establish a primary-model, blind-test, or flagship-paper claim.\n\n"
+    report += "\n".join("- PASS: " + check for check in checks) + "\n"
+    (output / "NEURAL_RESULT_AUDIT.md").write_text(report)
+    target = delivery / "CYP_neural_v3_review.zip"
+    if target.exists():
+        target = delivery / ("CYP_neural_v3_review_" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + ".zip")
+    names = [p.name for p in paths] + ["neural_family_manifest.json", "neural_result_audit.json",
+              "NEURAL_RESULT_AUDIT.md", "legacy_selection_audit.csv", "corrected_selection_audit.csv",
+              "callback_self_test.json", "RUN_REGISTRATION.json"]
+    with zipfile.ZipFile(target, "x", zipfile.ZIP_DEFLATED) as archive:
+        for name in names:
+            archive.write(output / name, name)
+    print(summary.to_string(index=False), flush=True)
+    print(f"PASS: 75 corrected TDI jobs, 125 reused regression jobs, and result audit completed.\nReview ZIP: {target}", flush=True)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--delivery", type=Path, required=True)
+    args = parser.parse_args()
+    run(args.root, args.delivery)
+
+
+if __name__ == "__main__":
+    main()

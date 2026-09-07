@@ -3,7 +3,23 @@
 公开数据驱动的 CYP 抑制预测研究。当前已实现并审查的是 **200 个神经网络基线任务及其独立审计**。
 论文主模型、消融实验、外部盲测提交和完整论文仍未完成；不承诺新颖性、顶刊录用或零错误。
 
-## 直接运行：两个独立命令
+## 已完成 v2：修正 TDI 选模方向
+
+2026-09-07 的训练记录复核确认，原 75 个 TDI 任务错误地最小化验证集 PRC，
+其零 MCC 属于有实现缺陷的历史运行。修正入口会先验证并复用 125 个回归任务，
+再以 PRC 最大化重跑 75 个分类任务，独立审计后导出新的结果包。
+详见[原因、验证状态与修正说明](docs/TDI_PRC_SELECTION_REPAIR.md)。
+
+```bash
+cd /root/autodl-tmp/paired-cyp-blind-github && git pull --ff-only origin main && bash scripts/start_tdi_prc_repair_4090.sh
+```
+
+新日志：`.runtime/tdi-prc-repair.log`。完成后上传 `CYP_neural_v3_review.zip`。
+修正结果尚需实际复跑；原 v2 文件保留，不能把原 TDI 零分当作已正确选模的基线结果。
+
+## 历史 v2 准备与复现：两个独立命令
+
+以下为原 v2 运行说明，包含上述已确认的 TDI 选模缺陷。已经完成 v2 的用户使用上方修正入口。
 
 在 AutoDL 的 Linux 终端执行。使用一张 RTX 4090，数据盘首次安装前至少有 30 GiB 空间，
 并能连接 GitHub、PyPI 和 Python 下载源。冻结的公开数据已随仓库提供，
@@ -59,7 +75,8 @@ cd /root/autodl-tmp/paired-cyp-blind-github && bash scripts/start_reviewed_neura
 
 冻结实验版本的 46 项回归测试、17 项真实数据输入审计、合成数据 smoke test 和真实数据
 三轮训练检查均已通过。历史 Day 1–2 审计为 43 PASS / 1 WARN，经典基线 13/13、
-split-gap 11/11 通过。RTX 4090 全量实验、总耗时与租赁成本尚未实测。
+split-gap 11/11 通过。已有 RTX 4090 的 200 任务记录；复核发现 TDI 选模方向缺陷，
+正在通过 v3 纠错复跑。上述原审计 PASS 不覆盖该选模行为，总租赁成本未核定。
 
 审查修复了缺失标签类别平衡采样、续跑清单哈希漂移、旧结果混入、
 不完整文件校验和 NaN 指标漏检问题。当前 TDI 比较统一使用不重采样、屏蔽缺失标签的 BCE；
