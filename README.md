@@ -1,9 +1,28 @@
 # Paired CYP Blind Validation
 
-公开数据驱动的 CYP 抑制预测研究。当前已实现并审查的是 **200 个神经网络基线任务及其独立审计**。
-论文主模型、消融实验、外部盲测提交和完整论文仍未完成；不承诺新颖性、顶刊录用或零错误。
+公开数据驱动的 CYP 抑制预测研究。**200 个修正后的神经网络基线任务已经完成结果复核**。
+下一阶段是成对实验主模型的最小原型与核心对照；外部盲测、完整五种子验证和论文尚未完成。
 
-## 已完成 v2：修正 TDI 选模方向
+## 当前 v4：主模型最小原型与核心对照
+
+四种条件 × 五个冻结家族折 × 一个种子，共 20 个探索性任务。比较成对活性约束和逐曲线标准差的作用；
+四组使用相同的数据、分子编码器和训练预算。先做真实 CPU 自测与四组 CUDA 小训练，再启动全部任务。
+这轮不自动升级为主结果，不更改旧基线或读取真实盲测结构。数学假设、消融边界、检查项和续跑规则见
+[v4 原型协议](docs/PAIRED_PROTOTYPE.md)。
+
+已完成 v3 的 AutoDL 实例执行：
+
+```bash
+cd /root/autodl-tmp/paired-cyp-blind-github &&
+git pull --ff-only origin main &&
+bash scripts/start_paired_prototype_4090.sh &&
+tail -n 60 -F .runtime/paired-prototype.log
+```
+
+看到全部 20 个任务及独立审计 `PASS` 后，上传仓库根目录的 `CYP_paired_v4_review.zip`。
+新日志每轮报告进度；同一入口可从最近完成的训练轮次续跑。训练时不要拉取代码更新。
+
+## 已完成 v3：修正原 v2 的 TDI 选模方向
 
 2026-09-07 的训练记录复核确认，原 75 个 TDI 任务错误地最小化验证集 PRC，
 其零 MCC 属于有实现缺陷的历史运行。修正入口会先验证并复用 125 个回归任务，
@@ -14,8 +33,8 @@
 cd /root/autodl-tmp/paired-cyp-blind-github && git pull --ff-only origin main && bash scripts/start_tdi_prc_repair_4090.sh
 ```
 
-新日志：`.runtime/tdi-prc-repair.log`。完成后上传 `CYP_neural_v3_review.zip`。
-修正结果尚需实际复跑；原 v2 文件保留，不能把原 TDI 零分当作已正确选模的基线结果。
+历史修正日志：`.runtime/tdi-prc-repair.log`。结果包为 `CYP_neural_v3_review.zip`。
+2026-09-08 上传的 v3 结果包已复核；原 v2 文件保留，不能把原 TDI 零分当作已正确选模的基线结果。
 若第一项修正任务报 `Last checkpoint differs from the final training epoch`，
 拉取更新后使用同一入口续跑：新版本核对 Lightning 2.6.5 的实际保存行为，
 验证已有模型及重新推断的一致性后恢复该任务。详细恢复规则见上方说明。
