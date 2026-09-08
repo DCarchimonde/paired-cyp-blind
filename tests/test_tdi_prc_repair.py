@@ -145,6 +145,84 @@ class LastCheckpointTests(unittest.TestCase):
                 self.audit(self.saved(), {**self.saved(), **change})
 
 
+class PredictionExportTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.data, self.replay, self.recorded = (self.root / name for name in ("input.csv", "predict.csv", "train_export.csv"))
+        self.source = pd.DataFrame({"Molecule_Name": ["m1", "m2", "m3"], "SMILES": ["C", "CC", "CCC"],
+                                    "A": [0., 1., np.nan], "B": [np.nan, 0., 1.]})
+        self.predictions = self.source.assign(A=[.1, .9, .4], B=[.3, .2, .8])
+        self.write()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def write(self, replay=None, recorded=None):
+        self.source.to_csv(self.data, index=False)
+        (self.predictions if replay is None else replay).to_csv(self.replay, index=False)
+        (self.predictions.drop(columns="Molecule_Name") if recorded is None else recorded).to_csv(self.recorded, index=False)
+
+    def audit(self):
+        return repair.prediction_parity(self.data, self.replay, self.recorded, ("A", "B"))
+
+    def test_realistic_single_task_86_by_3_vs_86_by_2(self):
+        source = pd.DataFrame({"Molecule_Name": [f"m{i}" for i in range(86)],
+                               "SMILES": ["C" * (1 + i % 4) for i in range(86)], "A": [i % 2 for i in range(86)]})
+        predicted = source.assign(A=np.linspace(.05, .95, 86))
+        source.to_csv(self.data, index=False)
+        predicted.to_csv(self.replay, index=False)
+        predicted.drop(columns="Molecule_Name").to_csv(self.recorded, index=False)
+        with self.assertRaisesRegex(AssertionError, "shape mismatch"):
+            pd.testing.assert_frame_equal(pd.read_csv(self.replay), pd.read_csv(self.recorded))
+        evidence = repair.prediction_parity(self.data, self.replay, self.recorded, ("A",))
+        self.assertEqual(evidence["rows"], 86)
+        self.assertEqual(evidence["max_abs_prediction_difference"], 0.)
+        self.assertTrue(evidence["exports"]["replay"]["molecule_ids_checked"])
+        self.assertFalse(evidence["exports"]["recorded"]["molecule_ids_checked"])
+
+    def test_masked_multitask_and_both_standalone_exports_are_supported(self):
+        self.assertEqual(self.audit()["targets"], ["A", "B"])
+        self.write(recorded=self.predictions)
+        self.assertTrue(self.audit()["exports"]["recorded"]["molecule_ids_checked"])
+        self.write(replay=self.predictions[["B", "Molecule_Name", "A", "SMILES"]])
+        self.assertEqual(self.audit()["max_abs_prediction_difference"], 0.)
+
+    def test_missing_targets_or_unrecognized_columns_are_rejected(self):
+        for bad in (self.predictions.drop(columns="B"), self.predictions.rename(columns={"B": "C"}),
+                    self.predictions.assign(unexpected=1)):
+            with self.subTest(columns=list(bad.columns)):
+                self.write(replay=bad)
+                with self.assertRaisesRegex(RuntimeError, "Prediction columns"):
+                    self.audit()
+
+    def test_row_count_smiles_and_optional_molecule_ids_must_match_input(self):
+        for bad in (self.predictions.iloc[:-1], self.predictions.iloc[::-1],
+                    self.predictions.assign(Molecule_Name=["wrong", "m2", "m3"]),
+                    self.predictions.assign(SMILES=["N", "CC", "CCC"])):
+            with self.subTest(bad=bad.to_dict()):
+                self.write(replay=bad)
+                with self.assertRaisesRegex(RuntimeError, "row count|identity/order"):
+                    self.audit()
+        self.write(replay=self.predictions.iloc[::-1], recorded=self.predictions.iloc[::-1])
+        with self.assertRaisesRegex(RuntimeError, "identity/order"):
+            self.audit()
+
+    def test_bad_probabilities_and_actual_numeric_differences_are_rejected(self):
+        for value in (np.nan, np.inf, -.01, 1.01, "not a number"):
+            self.write(replay=self.predictions.assign(A=[value, .9, .4]))
+            with self.subTest(value=value), self.assertRaisesRegex(RuntimeError, "probabilities"):
+                self.audit()
+        self.write(replay=self.predictions.assign(B=[.7, .2, .8]))
+        with self.assertRaises(AssertionError):
+            self.audit()
+
+    def test_duplicate_csv_headers_are_rejected(self):
+        self.replay.write_text("Molecule_Name,SMILES,A,A\nm1,C,0.1,0.3\n")
+        with self.assertRaisesRegex(RuntimeError, "duplicate prediction CSV header"):
+            self.audit()
+
+
 class RevisionRecoveryTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -225,17 +303,20 @@ class RevisionRecoveryTests(unittest.TestCase):
         model = attempt / "model/model_0"
         checkpoints = model / "checkpoints"
         checkpoints.mkdir(parents=True)
-        (checkpoints / "best-epoch=1-val_prc=0.80.ckpt").write_bytes(b"best checkpoint fixture")
+        (checkpoints / "best-epoch=1-val_prc=1.00.ckpt").write_bytes(b"best checkpoint fixture")
         (checkpoints / "last.ckpt").write_bytes(b"last checkpoint fixture")
         (model / "best.pt").write_bytes(b"model fixture")
-        (attempt / "train.log").write_text("Restoring states from the checkpoint path at /tmp/best-epoch=1-val_prc=0.80.ckpt\n")
+        marker = {**self.original["package_environment"], "before": None, "higher_is_better": True,
+                  "checkpoint_mode": "max", "early_stopping_mode": "max"}
+        (attempt / "train.log").write_text("PRC_DIRECTION_FIX " + json.dumps(marker) + "\n"
+            "Restoring states from the checkpoint path at /tmp/best-epoch=1-val_prc=1.00.ckpt\n")
         metrics = model / "trainer_logs/version_0/metrics.csv"
         metrics.parent.mkdir(parents=True)
-        pd.DataFrame({"epoch": range(17), "val/prc": [.2, .8] + [.4] * 15,
+        pd.DataFrame({"epoch": range(17), "val/prc": [.2, 1.] + [.4] * 15,
                       "train_loss_epoch": [.6] * 17}).to_csv(metrics, index=False)
-        prediction = pd.DataFrame({"SMILES": ["C", "CC"], "A": [.1, .9]})
-        prediction.to_csv(model / "test_predictions.csv", index=False)
-        prediction.to_csv(attempt / "predictions.csv", index=False)
+        prediction = pd.DataFrame({"Molecule_Name": ["m1", "m2"], "SMILES": ["C", "CC"], "A": [.1, .9]})
+        prediction.drop(columns="Molecule_Name").to_csv(model / "test_predictions.csv", index=False)
+        prediction.drop(columns="Molecule_Name").to_csv(attempt / "predictions.csv", index=False)
         prediction.to_csv(attempt / "validation_predictions.csv", index=False)
         (attempt / "validation.log").write_text("completed inference fixture")
         (attempt / "model/config.toml").write_text(f"output-dir = {attempt}/model\nloss-function = bce\n")
@@ -247,10 +328,11 @@ class RevisionRecoveryTests(unittest.TestCase):
         inputs = {}
         for member in ("train", "val", "test"):
             path = self.root / f"{member}.csv"
-            prediction.to_csv(path, index=False)
+            prediction.assign(A=[0., 1.]).to_csv(path, index=False)
             inputs[member] = repair.entry(self.root, path)
         old = {"outputs": {"log": repair.entry(self.root, old_attempt / "train.log")}, "inputs": inputs}
-        repair.write_json(self.output / "gpu_preflight.json", {"environment": {"fixture": True}})
+        repair.write_json(self.output / "gpu_preflight.json", {"environment": {"cuda_available": True,
+            "device_name": "RTX 4090 (unit-test fixture)", "compiled_cuda": "12.4", "compute_capability": "8.9", "vram_gib": 24.}})
         return job, job_root, attempt, old, prediction
 
     def test_recovery_replays_inference_preserves_artifacts_and_does_not_invent_duration(self):
@@ -274,6 +356,9 @@ class RevisionRecoveryTests(unittest.TestCase):
         self.assertFalse((job_root / "COMPLETE.json").exists())
         self.assertEqual(json.loads((attempt / "CANDIDATE.json").read_text()), result)
         self.assertEqual(before, {path: repair.sha(Path(path)) for path in before})
+        self.assertEqual(result["recovery"]["prediction_parity"]["test"]["exports"]["replay"]["columns"],
+                         ["Molecule_Name", "SMILES", "A"])
+        self.assertEqual(result["recovery"]["prediction_parity"]["test"]["exports"]["recorded"]["columns"], ["SMILES", "A"])
 
     def test_recovery_rejects_prediction_mismatch_without_marking_complete(self):
         _, registrations = repair.register_revision(self.output, self.current)
@@ -284,6 +369,45 @@ class RevisionRecoveryTests(unittest.TestCase):
             repair.recover_legacy_candidate(self.root, self.output, job, old, job_root, None,
                                             {"paths": {"job_root": "old"}}, self.root, registrations)
         self.assertFalse((attempt / "CANDIDATE.json").exists())
+        self.assertFalse((job_root / "COMPLETE.json").exists())
+
+    def test_recovered_candidate_passes_full_completion_recheck_with_distinct_export_formats(self):
+        _, registrations = repair.register_revision(self.output, self.current)
+        job, job_root, attempt, old, prediction = self.fixture_attempt()
+        def predict(command, **kwargs):
+            prediction.to_csv(Path(command[command.index("-o") + 1]), index=False)
+        neural = SimpleNamespace(build_chemprop_command=lambda *a, **k: ["chemprop", "train", "--remove-checkpoints"],
+            _validate_job_predictions=lambda root, config, job, data, pred: pd.read_csv(pred))
+        config = {"paths": {"job_root": "old"}}
+        with patch.object(repair.subprocess, "run", side_effect=predict):
+            record = repair.recover_legacy_candidate(self.root, self.output, job, old, job_root, neural,
+                                                     config, self.root, registrations)
+        record["status"] = "PASS"
+
+        class Checkpoint:
+            def __init__(self, monitor, mode):
+                self.state_key = f"checkpoint:{monitor}:{mode}"
+
+        class Stopping:
+            def __init__(self, monitor, mode, patience):
+                self.state_key = f"stopping:{monitor}:{mode}"
+
+        best = {"epoch": 1, "global_step": 2, "pytorch-lightning_version": "2.6.5",
+                "state_dict": {"weight": np.array(.64)},
+                "callbacks": {"checkpoint:val/prc:max": {"best_model_score": 1.}, "stopping:val/prc:max": {}}}
+        exported = {"output_columns": ["A"], "state_dict": best["state_dict"]}
+        torch = ModuleType("torch")
+        torch.load = lambda path, **kwargs: exported if Path(path).name == "best.pt" else deepcopy(best)
+        torch.equal = np.array_equal
+        callbacks = ModuleType("lightning.pytorch.callbacks")
+        callbacks.ModelCheckpoint, callbacks.EarlyStopping = Checkpoint, Stopping
+        environment = ModuleType("chemprop_prc_max")
+        environment.environment = lambda: self.original["package_environment"]
+        modules = {"torch": torch, "lightning.pytorch.callbacks": callbacks,
+                   "chemprop_prc_max": environment, "tdi_checkpoint_audit": checkpoint_audit}
+        with patch.dict(sys.modules, modules):
+            repair.verify_fixed(self.root, record, job, old, registrations, job_root, neural, config, record["command"])
+        self.assertTrue(record["last_checkpoint_audit"]["last_weights_match_best"])
         self.assertFalse((job_root / "COMPLETE.json").exists())
 
 

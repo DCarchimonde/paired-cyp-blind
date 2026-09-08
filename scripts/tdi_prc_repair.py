@@ -7,6 +7,7 @@ completed jobs and summaries remain available for historical reproduction.
 from __future__ import annotations
 
 import argparse
+import csv
 from dataclasses import asdict
 from datetime import datetime, timezone
 import hashlib
@@ -133,6 +134,56 @@ def prediction_command(root: Path, data: Path, model: Path, output: Path) -> lis
             "--num-workers", "4", "--batch-size", "64"]
 
 
+def prediction_parity(data_path: Path, replay_path: Path, recorded_path: Path,
+                      targets: tuple[str, ...]) -> dict:
+    """Compare explicit target probabilities and independently verify row identity.
+
+    Chemprop's train exporter writes SMILES + targets; its predict exporter
+    preserves Molecule_Name from the input as well. Only that metadata column
+    is optional. Never compare a column intersection or sort/join rows.
+    """
+    columns = ["SMILES", *targets]
+    if not targets or len(set(columns)) != len(columns) or "Molecule_Name" in targets:
+        raise RuntimeError("Invalid prediction target schema.")
+
+    def read(path):
+        with path.open(newline="", encoding="utf-8") as handle:
+            header = next(csv.reader(handle), [])
+        if not header or len(header) != len(set(header)):
+            raise RuntimeError(f"Empty/duplicate prediction CSV header: {path}")
+        return pd.read_csv(path, dtype={"Molecule_Name": str, "SMILES": str})
+
+    source = read(data_path)
+    if (source.empty or set(source.columns) != {"Molecule_Name", *columns}
+            or source[["Molecule_Name", "SMILES"]].isna().any().any()
+            or source.Molecule_Name.duplicated().any()):
+        raise RuntimeError(f"Invalid prepared prediction membership/schema: {data_path}")
+    frames, metadata = {}, {}
+    for label, path in (("replay", replay_path), ("recorded", recorded_path)):
+        frame = read(path)
+        if not set(columns).issubset(frame.columns) or set(frame.columns) - {"Molecule_Name", *columns}:
+            raise RuntimeError(f"Prediction columns differ from required targets/metadata: {path}: "
+                               f"observed={list(frame.columns)}, required={columns}, optional=['Molecule_Name']")
+        if len(frame) != len(source):
+            raise RuntimeError(f"Prediction row count differs from prepared input: {path}: {len(frame)} != {len(source)}")
+        for key in ("SMILES", "Molecule_Name"):
+            if key in frame and not frame[key].equals(source[key]):
+                raise RuntimeError(f"Prediction row identity/order differs for {key}: {path}")
+        try:
+            values = frame[list(targets)].to_numpy(float)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(f"Nonnumeric prediction probabilities: {path}") from exc
+        if not np.isfinite(values).all() or not ((0 <= values) & (values <= 1)).all():
+            raise RuntimeError(f"Invalid prediction probabilities: {path}")
+        frames[label] = pd.DataFrame(values, columns=list(targets))
+        metadata[label] = {"columns": list(frame.columns), "molecule_ids_checked": "Molecule_Name" in frame}
+    pd.testing.assert_frame_equal(frames["replay"], frames["recorded"], check_dtype=False, atol=1e-7, rtol=1e-6)
+    return {"overall_pass": True, "rows": len(source), "targets": list(targets),
+            "ordered_smiles_match_input": True, "exports": metadata,
+            "max_abs_prediction_difference": float(np.max(np.abs(frames["replay"].to_numpy() - frames["recorded"].to_numpy()))),
+            "atol": 1e-7, "rtol": 1e-6}
+
+
 def verify_saved_config(path: Path, original_path: Path, attempt: Path) -> None:
     # Chemprop writes configargparse key=value syntax (not standards-compliant TOML).
     def read(source):
@@ -181,7 +232,7 @@ def recover_legacy_candidate(root, output, job, old, job_root, neural, config, d
                 "original_config": entry(root, old_config),
                 "runtime_seconds": None, "duration_note": "Not persisted by the interrupted legacy auditor"}
     write_json(evidence_dir / "snapshot.json", snapshot)
-    commands, rechecks = {}, {}
+    commands, rechecks, parity = {}, {}, {}
     print(f"RECOVER existing trained attempt; checking saved-model inference: {job.job_id}", flush=True)
     for member, old_key in (("val", "validation_predictions"), ("test", "chemprop_predictions")):
         result = evidence_dir / f"{member}_predictions.csv"
@@ -189,8 +240,8 @@ def recover_legacy_candidate(root, output, job, old, job_root, neural, config, d
         commands[member] = prediction_command(root, root / old["inputs"][member]["path"], paths["best_model"], result)
         with log_path.open("w") as log:
             subprocess.run(commands[member], cwd=root, stdout=log, stderr=subprocess.STDOUT, check=True)
-        pd.testing.assert_frame_equal(pd.read_csv(result), pd.read_csv(paths[old_key]),
-                                      check_dtype=False, atol=1e-7, rtol=1e-6)
+        parity[member] = prediction_parity(root / old["inputs"][member]["path"], result, paths[old_key], job.targets)
+        print(f"RECOVERY PREDICTION PASS: split={member} " + json.dumps(parity[member]), flush=True)
         rechecks[member] = entry(root, result)
         rechecks[member + "_log"] = entry(root, log_path)
     for artifact in outputs.values():
@@ -209,6 +260,7 @@ def recover_legacy_candidate(root, output, job, old, job_root, neural, config, d
               "selection": selection, "source_v2_complete_sha256": sha(root / config["paths"]["job_root"] / job.job_id / "COMPLETE.json"),
               "recovery": {"kind": "legacy_post_training_audit_failure", "snapshot": entry(root, evidence_dir / "snapshot.json"),
                            "inference_rechecks": rechecks, "inference_commands": commands,
+                           "prediction_parity": parity,
                            "inference_runtime_environment": {key: os.environ.get(key) for key in
                                ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "CYP_IGNORED_OMP_NUM_THREADS")},
                            "training_command_reconstructed": True, "wall_duration_unknown": True}}
@@ -359,8 +411,9 @@ def verify_fixed(root: Path, record: dict, job, old: dict, registrations: dict,
             replay = recorded_file(root, recovery["inference_rechecks"][member], within=new_job_root)
             if recovery["inference_commands"][member] != prediction_command(root, inputs[member], outputs["best_model"], replay):
                 raise RuntimeError(f"Historical inference command differs: {job.job_id}")
-            pd.testing.assert_frame_equal(pd.read_csv(replay), pd.read_csv(outputs[original_key]),
-                                          check_dtype=False, atol=1e-7, rtol=1e-6)
+            parity = prediction_parity(inputs[member], replay, outputs[original_key], job.targets)
+            if recovery.get("prediction_parity") is not None and recovery["prediction_parity"].get(member) != parity:
+                raise RuntimeError(f"Historical prediction parity evidence differs: {job.job_id}/{member}")
     flight = record.get("environment", {})
     if (flight.get("cuda_available") is not True or "4090" not in str(flight.get("device_name"))
             or flight.get("compiled_cuda") != "12.4" or flight.get("compute_capability") != "8.9"

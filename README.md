@@ -19,6 +19,7 @@ cd /root/autodl-tmp/paired-cyp-blind-github && git pull --ff-only origin main &&
 若第一项修正任务报 `Last checkpoint differs from the final training epoch`，
 拉取更新后使用同一入口续跑：新版本核对 Lightning 2.6.5 的实际保存行为，
 验证已有模型及重新推断的一致性后恢复该任务。详细恢复规则见上方说明。
+恢复时的预测表 `86×3` 与 `86×2` 列数差异也已处理：分开核验标识列和目标概率，使用同一入口续跑。
 
 ## 历史 v2 准备与复现：两个独立命令
 
