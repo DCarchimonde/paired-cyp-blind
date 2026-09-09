@@ -1,9 +1,30 @@
 # Paired CYP Blind Validation
 
-公开数据驱动的 CYP 抑制预测研究。**200 个修正后的神经网络基线任务已经完成结果复核**。
-下一阶段是成对实验主模型的最小原型与核心对照；外部盲测、完整五种子验证和论文尚未完成。
+公开数据驱动的 CYP 抑制预测研究。**200 个修正基线和 20 个 v4 主模型原型任务已完成结果复核**。
+当前进入 v5：复核成对结构的种子稳定性，并检验固定的 CYP2D6 任务损失调整。外部盲测和论文尚未完成。
 
-## 当前 v4：主模型最小原型与核心对照
+## 当前 v5：五种子复现与 2D6 损失权重对照
+
+基于已完成的训练集/内部验证诊断，新增 **50 个训练任务**：40 个补齐
+`paired_no_std` 与匹配独立头的五种子结果，10 个只将 2D6 分类损失加倍。
+保留阈值 0.5、原验证选模规则和全部 v4 结果。任务列表共 60 项，其中 10 项复用原 v4。
+权重调整只有一个种子，属于改进假设的先导实验；本轮不会自动宣布模型成功。
+诊断证据、完整实验矩阵、审计与解释边界见 [v5 协议](docs/PAIRED_FOLLOWUP.md)。
+
+在保留完整 v4 运行目录的同一 AutoDL 实例执行：
+
+```bash
+cd /root/autodl-tmp/paired-cyp-blind-github &&
+git pull --ff-only origin main &&
+bash scripts/start_paired_followup_4090.sh &&
+tail -n 60 -F .runtime/paired-followup.log
+```
+
+等待 `PASS: all 50 new jobs, 10 verified v4 jobs, diagnostics and independent result audit completed.`，
+然后上传仓库根目录的 `CYP_paired_v5_review.zip`。使用原环境，不安装包；CPU 自测和真实 CUDA
+训练/续跑检查先于正式任务执行。同一入口支持续跑，训练时不要拉取代码更新。
+
+## 已完成 v4：主模型最小原型与核心对照
 
 四种条件 × 五个冻结家族折 × 一个种子，共 20 个探索性任务。比较成对活性约束和逐曲线标准差的作用；
 四组使用相同的数据、分子编码器和训练预算。先做真实 CPU 自测与四组 CUDA 小训练，再启动全部任务。

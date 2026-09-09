@@ -1,0 +1,42 @@
+{
+  "complete": true,
+  "device": "cpu",
+  "gradient_sample": 256,
+  "interpretation": "Descriptive fitted-model diagnostics; local gradients do not establish causal interference.",
+  "outer_predictions_used": false,
+  "outputs": {
+    "classification_train_val.csv": "321ab00779550ae0467dadfae64e6fa6e7d007504067d55a59cd916005de7efe",
+    "fixed_weight_std_sensitivity.csv": "331fd6d1aba4e84dda5f6a0cfe2b83d838228bff44f89fb94ad84f6858e9201b",
+    "observation_losses_train_val.csv": "fb62d32ae72b2844e21a3a26dac2bd0137bd9356526c5d3d85a2a1f75caa511b",
+    "selection_diagnostics.csv": "5e18a9cba727dde32bc5709a12e6e06b27177c73815df0739a42bd43a1962a65",
+    "training_gradient_diagnostics.csv": "f49c41e5ff33da6f97e50b9bdabde519c82634c5515a097f2591123a5c2d328f"
+  },
+  "partitions_evaluated": [
+    "train",
+    "val"
+  ],
+  "selected_weight_sha256": {
+    "independent_no_std__fold0__seed20260829": "ab95075c6ba71424d52de00c85f9df051bb45c51cf674a1e231746f92baa270a",
+    "independent_no_std__fold1__seed20260829": "21242446f44ea9014aadac582b9605fda638bb947c323e012ce9528ff6e380cf",
+    "independent_no_std__fold2__seed20260829": "10d2058ff457759618020e1a9c2a64e34ea42e147ca3b77624214632cf9e206f",
+    "independent_no_std__fold3__seed20260829": "c6b5311b73dc30b426d443943656d6b725b8b5b2cc85431707d2342d4232cae4",
+    "independent_no_std__fold4__seed20260829": "ffba55508f3a91abb07e3a3829491996412dd728bd1be0f17a40e478338e6781",
+    "independent_std__fold0__seed20260829": "40a0439badba298002ae97b19f77d77acd545fe5fa74047d094f0b9fbd5b647c",
+    "independent_std__fold1__seed20260829": "2771d7d9e4aa885e641f4a9acd7187754065d1e5a25fd7daf87271e16d9dde12",
+    "independent_std__fold2__seed20260829": "325542d6293ad1cbb0d3ba44f793408695554f3d137d36e467e600c8c3e253e5",
+    "independent_std__fold3__seed20260829": "4937432f6bf8315c244035ee946ca8adbeb79aeb5a0e67d8c9c738a555592acc",
+    "independent_std__fold4__seed20260829": "a5d64e81e7a329e93a83b5b7d524eaf374a5790ed0cc2a0b96abe3632f6151d3",
+    "paired_no_std__fold0__seed20260829": "1a9520e48f4b5e7568c82e09c6931e64d6a7336ac62dfb6c4298ca729a312836",
+    "paired_no_std__fold1__seed20260829": "4c6473993736373e4623291e4773357c7d0324330f04ddb946c4f2f7dd851dcb",
+    "paired_no_std__fold2__seed20260829": "7efd2ec1795c71a07712ee88443fb7ddc82fe72b1423d549571345f4ef549b1f",
+    "paired_no_std__fold3__seed20260829": "4e70b2579ae2236b2d4de28e69667dc502070c2650000e443d944c35c2eca375",
+    "paired_no_std__fold4__seed20260829": "d612f83c0d7e19388e67f7a17d1ac1038a31f53bd324788566abd86aa32efec6",
+    "paired_std__fold0__seed20260829": "1e42da44a18a6272646d9123c4b772cb25fbfdb7f3be3385e6b9e1bfc1996cec",
+    "paired_std__fold1__seed20260829": "bc4f4c338d0fdc1e7d655f456cbf7db3eeb3f837e06a2df08db1232c640ec682",
+    "paired_std__fold2__seed20260829": "b05a462f3a78f863ef926e9fd6a56d995d69c402ba8fe2fbb12c55dec342a443",
+    "paired_std__fold3__seed20260829": "089c6e3e9534b43ff5ac19022a5de458d3e534a83d8139b69d7c7cdd21d05da4",
+    "paired_std__fold4__seed20260829": "0fd9526543415835202a1dc31bdcb33c63f6b1c29c9b2ea2626f2b9b7cc0dbe6"
+  },
+  "threshold_tuned": false,
+  "v4_registration": "baab86d4d7c70b845fcfb17fc3005fd2c9c4d2f5127b5bc107aa27793d1995a3"
+}

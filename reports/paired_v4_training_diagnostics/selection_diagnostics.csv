@@ -1,0 +1,21 @@
+variant,fold,seed,epochs,selected_epoch,minimum_direct_component_epoch,minimum_TDI_component_epoch,note
+independent_no_std,0,20260829,67,51,30,51,component minima are diagnostics; original composite selection is unchanged
+independent_std,0,20260829,48,32,27,32,component minima are diagnostics; original composite selection is unchanged
+paired_no_std,0,20260829,46,30,30,45,component minima are diagnostics; original composite selection is unchanged
+paired_std,0,20260829,40,24,30,34,component minima are diagnostics; original composite selection is unchanged
+independent_no_std,1,20260829,46,30,44,26,component minima are diagnostics; original composite selection is unchanged
+independent_std,1,20260829,45,29,44,28,component minima are diagnostics; original composite selection is unchanged
+paired_no_std,1,20260829,69,53,52,32,component minima are diagnostics; original composite selection is unchanged
+paired_std,1,20260829,37,21,21,26,component minima are diagnostics; original composite selection is unchanged
+independent_no_std,2,20260829,43,27,40,27,component minima are diagnostics; original composite selection is unchanged
+independent_std,2,20260829,43,27,40,27,component minima are diagnostics; original composite selection is unchanged
+paired_no_std,2,20260829,100,93,58,75,component minima are diagnostics; original composite selection is unchanged
+paired_std,2,20260829,40,24,27,24,component minima are diagnostics; original composite selection is unchanged
+independent_no_std,3,20260829,36,20,20,34,component minima are diagnostics; original composite selection is unchanged
+independent_std,3,20260829,39,23,16,27,component minima are diagnostics; original composite selection is unchanged
+paired_no_std,3,20260829,54,38,8,38,component minima are diagnostics; original composite selection is unchanged
+paired_std,3,20260829,54,38,38,38,component minima are diagnostics; original composite selection is unchanged
+independent_no_std,4,20260829,28,12,8,12,component minima are diagnostics; original composite selection is unchanged
+independent_std,4,20260829,28,12,12,15,component minima are diagnostics; original composite selection is unchanged
+paired_no_std,4,20260829,28,12,12,26,component minima are diagnostics; original composite selection is unchanged
+paired_std,4,20260829,30,14,14,19,component minima are diagnostics; original composite selection is unchanged
